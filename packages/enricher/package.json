@@ -1,0 +1,1 @@
+{"name":"@wire/enricher","version":"1.0.0","private":true,"type":"module","scripts":{"dev":"tsx --watch src/index.ts"},"dependencies":{"@wire/shared":"*","express":"^5.0.0"}}
