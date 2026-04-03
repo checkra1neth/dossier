@@ -4,36 +4,16 @@ import type { EnrichedEvent, Signal } from "@wire/shared/types";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL = "qwen/qwen3.6-plus:free";
-
-function mockSignal(event: EnrichedEvent): Signal {
-  const isSmartMoney = event.walletProfile.isSmartMoney;
-  const actions: Signal["action"][] = ["BUY", "SELL", "WATCH"];
-  const action = isSmartMoney ? "BUY" : actions[Math.floor(Math.random() * 3)];
-  const confidence = isSmartMoney
-    ? 75 + Math.floor(Math.random() * 21)
-    : 30 + Math.floor(Math.random() * 41);
-
-  return {
-    id: randomUUID(),
-    action,
-    asset: event.walletProfile.topPositions[0]?.asset ?? "ETH",
-    confidence,
-    reasoning: isSmartMoney
-      ? `Smart money wallet moved $${event.valueUsd.toLocaleString()} — historically profitable pattern`
-      : `Whale transfer of $${event.valueUsd.toLocaleString()} detected, low-confidence signal`,
-    basedOn: event.txHash,
-  };
-}
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 3000;
 
 export async function analyzeEvent(event: EnrichedEvent): Promise<Signal> {
   const apiKey = envOptional("OPENROUTER_API_KEY");
   if (!apiKey) {
-    console.log("[analyst] No OPENROUTER_API_KEY, returning mock signal");
-    return mockSignal(event);
+    throw new Error("OPENROUTER_API_KEY is not set");
   }
 
-  try {
-    const prompt = `You are a crypto trading analyst. Analyze this whale transaction and return a trading signal.
+  const prompt = `You are a crypto trading analyst. Analyze this whale transaction and return a trading signal.
 
 Transaction:
 - Chain: ${event.chain}
@@ -52,43 +32,67 @@ Wallet Profile:
 Respond ONLY with valid JSON (no markdown, no code fences):
 {"action": "BUY" | "SELL" | "WATCH", "asset": "<token symbol>", "confidence": <0-100>, "reasoning": "<one sentence>"}`;
 
-    const res = await fetch(OPENROUTER_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        temperature: 0.3,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
+  let lastError: Error | null = null;
 
-    if (!res.ok) {
-      console.error(`[analyst] OpenRouter error: ${res.status} ${res.statusText}`);
-      return mockSignal(event);
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(OPENROUTER_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          temperature: 0.3,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+
+      if (res.status === 429) {
+        console.warn(`[analyst] OpenRouter 429, retrying in ${RETRY_DELAY_MS}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        lastError = new Error("OpenRouter rate limited (429)");
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+        continue;
+      }
+
+      if (!res.ok) {
+        throw new Error(`OpenRouter error: ${res.status} ${res.statusText}`);
+      }
+
+      const data = await res.json();
+      const content: string = data.choices?.[0]?.message?.content ?? "";
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error("Could not parse LLM response as JSON");
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        id: randomUUID(),
+        action: parsed.action ?? "WATCH",
+        asset: parsed.asset ?? "ETH",
+        confidence: typeof parsed.confidence === "number" ? parsed.confidence : 50,
+        reasoning: parsed.reasoning ?? "LLM analysis",
+        basedOn: event.txHash,
+      };
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < MAX_RETRIES - 1) {
+        console.error(`[analyst] LLM call failed (attempt ${attempt + 1}): ${lastError.message}`);
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      }
     }
-
-    const data = await res.json();
-    const content: string = data.choices?.[0]?.message?.content ?? "";
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.error("[analyst] Could not parse LLM response as JSON");
-      return mockSignal(event);
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]);
-    return {
-      id: randomUUID(),
-      action: parsed.action ?? "WATCH",
-      asset: parsed.asset ?? "ETH",
-      confidence: typeof parsed.confidence === "number" ? parsed.confidence : 50,
-      reasoning: parsed.reasoning ?? "LLM analysis",
-      basedOn: event.txHash,
-    };
-  } catch (err) {
-    console.error("[analyst] LLM call failed:", err);
-    return mockSignal(event);
   }
+
+  // All retries exhausted — return minimal fallback signal
+  console.error(`[analyst] LLM unavailable after ${MAX_RETRIES} retries: ${lastError?.message}`);
+  return {
+    id: randomUUID(),
+    action: "WATCH",
+    asset: "ETH",
+    confidence: 0,
+    reasoning: "LLM temporarily unavailable",
+    basedOn: event.txHash,
+  };
 }

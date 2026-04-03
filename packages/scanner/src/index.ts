@@ -3,8 +3,8 @@ import { createWireAgent, sendToGroup, makeWireMessage, wireMessageHandler, onWi
 import { PORTS } from "@wire/shared/config";
 import { sseHandler, broadcastSSE } from "@wire/shared/sse";
 import type { RawEvent } from "@wire/shared/types";
-import { startAlliumStream } from "./allium.ts";
-import type { AlliumTx } from "./allium.ts";
+import { startBlockchainStream } from "./blockchain.ts";
+import type { AlliumTx } from "./blockchain.ts";
 
 const ETH_PRICE_USD = 3500;
 
@@ -47,8 +47,8 @@ async function main(): Promise<void> {
   // Wire message endpoint (receive messages from other agents)
   app.post("/wire-message", express.json(), wireMessageHandler(wireAgent));
 
-  // Start Allium whale stream
-  startAlliumStream(async (tx: AlliumTx) => {
+  // Start blockchain whale stream
+  startBlockchainStream(async (tx: AlliumTx) => {
     const valueEth = parseFloat(tx.value);
     const valueUsd = valueEth * ETH_PRICE_USD;
 

@@ -51,12 +51,13 @@ export async function executeRipplePayment(signal: Signal): Promise<TradeResult>
     console.log(`[trader/ripple] Error: ${err instanceof Error ? err.message : err}`);
     try { await client.disconnect(); } catch {}
 
+    const msg = err instanceof Error ? err.message : String(err);
     return {
       signalId: signal.id,
       platform: "ripple",
-      action: `SIMULATED XRPL cross-border payment for ${signal.asset}`,
-      amount: 1,
-      status: "success",
+      action: `FAILED XRPL cross-border payment for ${signal.asset} — ${msg}`,
+      amount: 0,
+      status: "failed",
     };
   }
 }

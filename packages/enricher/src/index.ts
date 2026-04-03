@@ -38,7 +38,19 @@ app.post("/group", async (req, res) => {
 async function handleRawEvent(raw: RawEvent): Promise<void> {
   console.log(`[enricher] Enriching tx ${raw.txHash.slice(0, 10)}... from ${raw.from.slice(0, 10)}...`);
 
-  const walletProfile = await getWalletProfile(raw.from);
+  let walletProfile: EnrichedEvent["walletProfile"];
+  try {
+    walletProfile = await getWalletProfile(raw.from);
+  } catch (err) {
+    console.error(`[enricher] Zerion failed for ${raw.from.slice(0, 10)}...: ${err instanceof Error ? err.message : err}`);
+    console.log(`[enricher] Forwarding event with minimal wallet profile`);
+    walletProfile = {
+      totalValueUsd: 0,
+      isSmartMoney: false,
+      topPositions: [],
+      txCount30d: 0,
+    };
+  }
 
   const enriched: EnrichedEvent = { ...raw, walletProfile };
 
