@@ -1,6 +1,6 @@
 import { resolveToken, type TokenInfo } from "../services/zerion.ts";
 import { getWalletInfo, signAndSendTx } from "../services/ows.ts";
-import { encodeFunctionData, parseUnits } from "viem";
+import { encodeFunctionData, parseUnits, serializeTransaction, type TransactionSerializable } from "viem";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -184,7 +184,22 @@ export async function executeSend(
     };
   }
 
-  const txHex = Buffer.from(JSON.stringify(txPayload)).toString("hex");
+  // Serialize as RLP-encoded unsigned EIP-1559 transaction with gas
+  const isErc20 = txPayload.data !== "0x";
+  const tx: TransactionSerializable = {
+    to: txPayload.to as `0x${string}`,
+    value: BigInt(txPayload.value),
+    data: (isErc20 ? txPayload.data : undefined) as `0x${string}` | undefined,
+    chainId: parseInt(numericChainId),
+    type: "eip1559" as const,
+    gas: BigInt(isErc20 ? 65000 : 21000),
+    maxFeePerGas: BigInt(1_000_000_000), // 1 gwei
+    maxPriorityFeePerGas: BigInt(1_000_000), // 0.001 gwei
+    nonce: 0, // OWS will override with correct nonce
+  };
+  const serialized = serializeTransaction(tx);
+  // Remove 0x prefix for OWS CLI
+  const txHex = serialized.startsWith("0x") ? serialized.slice(2) : serialized;
   const txResult = signAndSendTx(walletName, request.chain, txHex);
   return txResult;
 }
