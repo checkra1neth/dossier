@@ -4,9 +4,9 @@ import { sseHandler, broadcastSSE } from "@wire/shared/sse";
 import {
   createWireAgent,
   sendToGroup,
-  createGroup,
-  parseWireMessage,
   makeWireMessage,
+  onWireMessage,
+  wireMessageHandler,
 } from "@wire/shared/xmtp";
 import type { EnrichedEvent } from "@wire/shared/types";
 import { analyzeEvent } from "./llm.ts";
@@ -15,18 +15,26 @@ import { addSignal, getLatestSignal, getSignals } from "./signals-store.ts";
 const app = express();
 app.use(express.json());
 
-// SSE + health + address + group endpoints
+// SSE + health endpoints
 app.get("/events", sseHandler);
 app.get("/health", (_req, res) => res.json({ status: "ok", agent: "analyst" }));
 
 const wireAgent = await createWireAgent("analyst");
 
-app.get("/address", (_req, res) => res.json({ address: wireAgent.agent.address }));
-app.post("/group", async (req, res) => {
-  const { members } = req.body;
-  const groupId = await createGroup(wireAgent, members);
-  res.json({ groupId });
+app.get("/address", (_req, res) => res.json({ address: wireAgent.address }));
+app.post("/group", (req, res) => {
+  const { groupId } = req.body as { groupId: string };
+  if (!groupId) {
+    res.status(400).json({ error: "groupId required" });
+    return;
+  }
+  wireAgent.groupId = groupId;
+  console.log(`[analyst] Joined group: ${groupId}`);
+  res.json({ ok: true, groupId });
 });
+
+// Wire message endpoint (receive messages from other agents)
+app.post("/wire-message", express.json(), wireMessageHandler(wireAgent));
 
 // x402 paid API endpoints
 const paidRouter = express.Router();
@@ -40,7 +48,7 @@ try {
 
   const facilitatorUrl =
     process.env.FACILITATOR_URL || "https://x402.org/facilitator";
-  const payTo = wireAgent.agent.address;
+  const payTo = wireAgent.address;
 
   const applyPayment = (paymentMiddleware as Function)(
     (evm as Function)((exact as Function)()),
@@ -84,10 +92,9 @@ try {
 
 app.use("/api", paidRouter);
 
-// Listen for XMTP messages
-wireAgent.agent.on("message", async (msg) => {
-  const wireMsg = parseWireMessage(msg.content as string);
-  if (!wireMsg || wireMsg.type !== "enriched_event") return;
+// Listen for wire messages
+onWireMessage(wireAgent, async (wireMsg) => {
+  if (wireMsg.type !== "enriched_event") return;
 
   const enrichedEvent = wireMsg.data as EnrichedEvent;
   console.log(`[analyst] Received enriched event: ${enrichedEvent.txHash}`);
@@ -112,5 +119,4 @@ app.listen(port, () => {
   console.log(`[analyst] SSE at /events, API at /api/signals`);
 });
 
-await wireAgent.agent.start();
-console.log("[analyst] XMTP listener started");
+console.log("[analyst] Wire message listener active");

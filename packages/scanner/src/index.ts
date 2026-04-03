@@ -1,5 +1,5 @@
 import express from "express";
-import { createWireAgent, sendToGroup, makeWireMessage } from "@wire/shared/xmtp";
+import { createWireAgent, sendToGroup, makeWireMessage, wireMessageHandler, onWireMessage } from "@wire/shared/xmtp";
 import { PORTS } from "@wire/shared/config";
 import { sseHandler, broadcastSSE } from "@wire/shared/sse";
 import type { RawEvent } from "@wire/shared/types";
@@ -22,14 +22,14 @@ async function main(): Promise<void> {
     res.json({
       agent: "scanner",
       status: "ok",
-      xmtpAddress: wireAgent.agent.address,
+      address: wireAgent.address,
       groupId: wireAgent.groupId,
     });
   });
 
-  // XMTP address
+  // Address
   app.get("/address", (_req, res) => {
-    res.json({ address: wireAgent.agent.address });
+    res.json({ address: wireAgent.address });
   });
 
   // Join group
@@ -43,6 +43,9 @@ async function main(): Promise<void> {
     console.log(`[scanner] Joined group: ${groupId}`);
     res.json({ ok: true, groupId });
   });
+
+  // Wire message endpoint (receive messages from other agents)
+  app.post("/wire-message", express.json(), wireMessageHandler(wireAgent));
 
   // Start Allium whale stream
   startAlliumStream(async (tx: AlliumTx) => {
@@ -66,7 +69,7 @@ async function main(): Promise<void> {
     // Broadcast to SSE clients (dashboard)
     broadcastSSE("scanner", wireMsg);
 
-    // Send to XMTP group if joined
+    // Send to wire group if joined
     try {
       await sendToGroup(wireAgent, wireMsg);
     } catch {

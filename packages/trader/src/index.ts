@@ -1,5 +1,11 @@
 import express from "express";
-import { createWireAgent, sendToGroup, makeWireMessage, parseWireMessage } from "@wire/shared/xmtp";
+import {
+  createWireAgent,
+  sendToGroup,
+  makeWireMessage,
+  onWireMessage,
+  wireMessageHandler,
+} from "@wire/shared/xmtp";
 import { PORTS } from "@wire/shared/config";
 import { sseHandler, broadcastSSE } from "@wire/shared/sse";
 import type { Signal, TradeResult } from "@wire/shared/types";
@@ -35,14 +41,14 @@ async function main(): Promise<void> {
     res.json({
       agent: "trader",
       status: "ok",
-      xmtpAddress: wireAgent.agent.address,
+      address: wireAgent.address,
       groupId: wireAgent.groupId,
     });
   });
 
-  // XMTP address
+  // Address
   app.get("/address", (_req, res) => {
-    res.json({ address: wireAgent.agent.address });
+    res.json({ address: wireAgent.address });
   });
 
   // Join group
@@ -57,11 +63,12 @@ async function main(): Promise<void> {
     res.json({ ok: true, groupId });
   });
 
-  // Listen for XMTP messages
-  wireAgent.agent.on("message", async (msg) => {
-    const text = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
-    const wireMsg = parseWireMessage(text);
-    if (!wireMsg || wireMsg.type !== "signal") return;
+  // Wire message endpoint (receive messages from other agents)
+  app.post("/wire-message", express.json(), wireMessageHandler(wireAgent));
+
+  // Listen for wire messages
+  onWireMessage(wireAgent, async (wireMsg) => {
+    if (wireMsg.type !== "signal") return;
 
     const signal = wireMsg.data as Signal;
     console.log(`[trader] Received signal: ${signal.action} ${signal.asset} (confidence: ${signal.confidence})`);
@@ -77,7 +84,7 @@ async function main(): Promise<void> {
       // Broadcast to SSE clients
       broadcastSSE("trader", outMsg);
 
-      // Send to XMTP group
+      // Send to wire group
       try {
         await sendToGroup(wireAgent, outMsg);
       } catch {
@@ -91,8 +98,7 @@ async function main(): Promise<void> {
     console.log(`[trader] HTTP server on :${port}`);
   });
 
-  // Start XMTP agent message listener
-  await wireAgent.agent.start();
+  console.log("[trader] Wire message listener active");
 }
 
 main().catch((err) => {

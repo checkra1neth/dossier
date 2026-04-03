@@ -1,5 +1,12 @@
 import express from "express";
-import { createWireAgent, sendToGroup, makeWireMessage, parseWireMessage } from "@wire/shared/xmtp";
+import {
+  createWireAgent,
+  sendToGroup,
+  sendDM,
+  makeWireMessage,
+  onWireMessage,
+  wireMessageHandler,
+} from "@wire/shared/xmtp";
 import { PORTS } from "@wire/shared/config";
 import { sseHandler, broadcastSSE } from "@wire/shared/sse";
 import type { Signal, StatusUpdate } from "@wire/shared/types";
@@ -24,7 +31,6 @@ function formatAlert(signal: Signal): string {
 
 async function main(): Promise<void> {
   const wireAgent = await createWireAgent("distributor");
-  const agent = wireAgent.agent;
 
   const app = express();
   app.use(express.json());
@@ -37,15 +43,15 @@ async function main(): Promise<void> {
     res.json({
       agent: "distributor",
       status: "ok",
-      xmtpAddress: agent.address,
+      address: wireAgent.address,
       groupId: wireAgent.groupId,
       subscriberCount: getSubscriberCount(),
     });
   });
 
-  // XMTP address
+  // Address
   app.get("/address", (_req, res) => {
-    res.json({ address: agent.address });
+    res.json({ address: wireAgent.address });
   });
 
   // Join group
@@ -60,13 +66,52 @@ async function main(): Promise<void> {
     res.json({ ok: true, groupId });
   });
 
-  // Listen for group messages — broadcast signals to subscribers
-  agent.on("group", async (ctx) => {
-    const text = ctx.message?.text;
-    if (!text) return;
+  // Wire message endpoint (receive messages from other agents)
+  app.post("/wire-message", express.json(), wireMessageHandler(wireAgent));
 
-    const wireMsg = parseWireMessage(text);
-    if (!wireMsg || wireMsg.type !== "signal") return;
+  // DM endpoint — replaces XMTP DM handling
+  app.post("/dm", async (req, res) => {
+    const { address, text } = req.body as { address: string; text: string };
+    if (!address || !text) {
+      res.status(400).json({ error: "address and text required" });
+      return;
+    }
+
+    const command = text.trim().toLowerCase();
+
+    if (command === "/subscribe") {
+      const added = addSubscriber(address);
+      const reply = added
+        ? `Subscribed! You'll receive Intelligence Wire alerts via DM.`
+        : `You're already subscribed.`;
+      await sendDM(wireAgent, address, reply);
+      res.json({ ok: true, reply });
+    } else if (command === "/unsubscribe") {
+      const removed = removeSubscriber(address);
+      const reply = removed
+        ? `Unsubscribed. You'll no longer receive alerts.`
+        : `You're not currently subscribed.`;
+      await sendDM(wireAgent, address, reply);
+      res.json({ ok: true, reply });
+    } else if (command === "/status") {
+      const subscribed = isSubscribed(address);
+      const reply = [
+        `Intelligence Wire Distributor`,
+        `Status: ${subscribed ? "Subscribed" : "Not subscribed"}`,
+        `Total subscribers: ${getSubscriberCount()}`,
+      ].join("\n");
+      await sendDM(wireAgent, address, reply);
+      res.json({ ok: true, reply });
+    } else {
+      const reply = `Available commands:\n/subscribe — receive alerts\n/unsubscribe — stop alerts\n/status — check status`;
+      await sendDM(wireAgent, address, reply);
+      res.json({ ok: true, reply });
+    }
+  });
+
+  // Listen for wire messages — broadcast signals to subscribers
+  onWireMessage(wireAgent, async (wireMsg) => {
+    if (wireMsg.type !== "signal") return;
 
     const signal = wireMsg.data as Signal;
     const alertText = formatAlert(signal);
@@ -75,8 +120,7 @@ async function main(): Promise<void> {
     let sentCount = 0;
     for (const sub of subscribers) {
       try {
-        const dm = await agent.client.conversations.newDmWithAddress(sub.address);
-        await dm.send(alertText);
+        await sendDM(wireAgent, sub.address, alertText);
         sentCount++;
       } catch (err) {
         console.error(`[distributor] Failed to DM ${sub.address}:`, err);
@@ -100,48 +144,12 @@ async function main(): Promise<void> {
     }
   });
 
-  // Listen for DMs — handle subscriber commands
-  agent.on("dm", async (ctx) => {
-    const text = ctx.message?.text?.trim();
-    if (!text) return;
-
-    const senderAddress = ctx.getSenderAddress();
-    const command = text.toLowerCase();
-
-    if (command === "/subscribe") {
-      const added = addSubscriber(senderAddress);
-      const reply = added
-        ? `Subscribed! You'll receive Intelligence Wire alerts via DM.`
-        : `You're already subscribed.`;
-      await ctx.conversation.sendText(reply);
-    } else if (command === "/unsubscribe") {
-      const removed = removeSubscriber(senderAddress);
-      const reply = removed
-        ? `Unsubscribed. You'll no longer receive alerts.`
-        : `You're not currently subscribed.`;
-      await ctx.conversation.sendText(reply);
-    } else if (command === "/status") {
-      const subscribed = isSubscribed(senderAddress);
-      const reply = [
-        `Intelligence Wire Distributor`,
-        `Status: ${subscribed ? "Subscribed" : "Not subscribed"}`,
-        `Total subscribers: ${getSubscriberCount()}`,
-      ].join("\n");
-      await ctx.conversation.sendText(reply);
-    } else {
-      await ctx.conversation.sendText(
-        `Available commands:\n/subscribe — receive alerts\n/unsubscribe — stop alerts\n/status — check status`
-      );
-    }
-  });
-
   const port = PORTS.distributor;
   app.listen(port, () => {
     console.log(`[distributor] HTTP server on :${port}`);
   });
 
-  await agent.start();
-  console.log(`[distributor] XMTP agent listening for messages`);
+  console.log("[distributor] Wire message listener active");
 }
 
 main().catch((err) => {

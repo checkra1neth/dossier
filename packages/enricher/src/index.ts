@@ -6,7 +6,8 @@ import {
   createWireAgent,
   sendToGroup,
   makeWireMessage,
-  parseWireMessage,
+  onWireMessage,
+  wireMessageHandler,
 } from "@wire/shared/xmtp";
 import { getWalletProfile } from "./zerion.ts";
 
@@ -17,8 +18,11 @@ app.get("/events", sseHandler);
 app.get("/health", (_req, res) => {
   res.json({ agent: "enricher", status: "ok", uptime: process.uptime() });
 });
+
+let wireAgent: Awaited<ReturnType<typeof createWireAgent>> | null = null;
+
 app.get("/address", (_req, res) => {
-  res.json({ address: wireAgent?.agent.address ?? null });
+  res.json({ address: wireAgent?.address ?? null });
 });
 app.post("/group", async (req, res) => {
   const { groupId } = req.body as { groupId: string };
@@ -30,8 +34,6 @@ app.post("/group", async (req, res) => {
     res.status(400).json({ error: "missing groupId or agent not ready" });
   }
 });
-
-let wireAgent: Awaited<ReturnType<typeof createWireAgent>> | null = null;
 
 async function handleRawEvent(raw: RawEvent): Promise<void> {
   console.log(`[enricher] Enriching tx ${raw.txHash.slice(0, 10)}... from ${raw.from.slice(0, 10)}...`);
@@ -58,19 +60,18 @@ async function handleRawEvent(raw: RawEvent): Promise<void> {
 async function main(): Promise<void> {
   wireAgent = await createWireAgent("enricher");
 
-  wireAgent.agent.on("message", async (msg) => {
-    const text = typeof msg.content === "string" ? msg.content : String(msg.content);
-    const wire = parseWireMessage(text);
-    if (!wire) return;
+  // Wire message endpoint (receive messages from other agents)
+  app.post("/wire-message", express.json(), wireMessageHandler(wireAgent));
 
+  // Listen for wire messages
+  onWireMessage(wireAgent, async (wire) => {
     if (wire.type === "raw_event") {
       const rawEvent = wire.data as RawEvent;
       await handleRawEvent(rawEvent);
     }
   });
 
-  await wireAgent.agent.start();
-  console.log("[enricher] XMTP agent listening for messages");
+  console.log("[enricher] Listening for wire messages");
 
   const port = PORTS.enricher;
   app.listen(port, () => {
