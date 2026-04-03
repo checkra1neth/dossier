@@ -1,49 +1,65 @@
 import type { AgentName, WireMessage } from "./types.ts";
-import { getWalletKey } from "./config.ts";
-import { privateKeyToAccount } from "viem/accounts";
+import {
+  getWallet,
+  createWallet,
+  signMessage as owsSignMessage,
+  listWallets,
+} from "@open-wallet-standard/core";
 
-// Message bus for inter-agent communication (HTTP-based fallback when XMTP native bindings unavailable)
-// In production, this would be real XMTP. For hackathon demo, HTTP bus provides identical UX.
+// Each agent gets an OWS wallet with addresses on 8+ chains.
+// Communication via HTTP message bus between agents.
 
 export interface WireAgent {
-  address: string;
+  address: string;         // EVM address
+  solanaAddress: string;   // Solana address
+  walletName: string;      // OWS wallet name
   name: AgentName;
   groupId: string | null;
   listeners: Array<(msg: WireMessage) => void>;
+  allAccounts: { chainId: string; address: string }[];
 }
 
-// Global message bus (shared across agents in same process, or via HTTP for separate processes)
-const MESSAGE_BUS_PORT = 4099;
-let busServer: any = null;
-const registeredAgents = new Map<string, WireAgent>();
-const messageListeners = new Map<string, Array<(msg: WireMessage) => void>>();
-
 export async function createWireAgent(name: AgentName): Promise<WireAgent> {
-  const walletKey = getWalletKey(name);
-  const account = privateKeyToAccount(walletKey);
+  const walletName = `${name}-agent`;
+
+  // Get or create OWS wallet
+  let wallet;
+  try {
+    wallet = await getWallet(walletName);
+  } catch {
+    wallet = await createWallet(walletName);
+  }
+
+  const accounts = wallet.accounts ?? [];
+  const evmAccount = accounts.find((a: any) => a.chainId?.startsWith("eip155:"));
+  const solAccount = accounts.find((a: any) => a.chainId?.startsWith("solana:"));
 
   const wireAgent: WireAgent = {
-    address: account.address,
+    address: evmAccount?.address ?? "unknown",
+    solanaAddress: solAccount?.address ?? "unknown",
+    walletName,
     name,
     groupId: null,
     listeners: [],
+    allAccounts: accounts.map((a: any) => ({ chainId: a.chainId, address: a.address })),
   };
 
-  registeredAgents.set(name, wireAgent);
-  console.log(`[${name}] Agent online: ${account.address}`);
+  console.log(`[${name}] OWS wallet "${walletName}" — ${accounts.length} chains`);
+  console.log(`[${name}]   EVM: ${wireAgent.address}`);
+  console.log(`[${name}]   SOL: ${wireAgent.solanaAddress}`);
+
+  // Sign a startup message to prove wallet ownership
+  try {
+    const sig = await owsSignMessage(walletName, "evm", `${name}-agent alive at ${Date.now()}`);
+    console.log(`[${name}]   Signed startup proof: ${sig.signature.slice(0, 20)}...`);
+  } catch (err) {
+    console.warn(`[${name}]   Could not sign startup proof: ${(err as Error).message}`);
+  }
 
   return wireAgent;
 }
 
-export async function createGroup(_wireAgent: WireAgent, _memberAddresses: string[]): Promise<string> {
-  const groupId = `wire-group-${Date.now()}`;
-  _wireAgent.groupId = groupId;
-  console.log(`[${_wireAgent.name}] Created group: ${groupId}`);
-  return groupId;
-}
-
 export async function sendToGroup(wireAgent: WireAgent, msg: WireMessage): Promise<void> {
-  // Send to all other agents via HTTP
   const { PORTS } = await import("./config.ts");
   const agents: AgentName[] = ["scanner", "enricher", "analyst", "distributor", "trader"];
 
@@ -57,13 +73,12 @@ export async function sendToGroup(wireAgent: WireAgent, msg: WireMessage): Promi
         body: JSON.stringify(msg),
       });
     } catch {
-      // Agent not running yet, skip
+      // Agent not running yet
     }
   }
 }
 
 export async function sendDM(fromAgent: WireAgent, toAddress: string, text: string): Promise<void> {
-  // For demo: log the DM. In production, this would use XMTP DM.
   console.log(`[${fromAgent.name}] DM to ${toAddress.slice(0, 10)}...: ${text.slice(0, 80)}`);
 }
 
@@ -91,7 +106,6 @@ export function makeWireMessage(
   return { type, from, timestamp: Date.now(), data };
 }
 
-// Express middleware to handle incoming wire messages
 export function wireMessageHandler(wireAgent: WireAgent) {
   return (req: any, res: any) => {
     const msg = req.body as WireMessage;
