@@ -14,6 +14,20 @@ import {
   listWallets as owsListWallets,
 } from "@open-wallet-standard/core";
 import { research } from "./pipeline.ts";
+import { handleQuick } from "./commands/quick.ts";
+import { handlePnl } from "./commands/pnl.ts";
+import { handleDefi } from "./commands/defi.ts";
+import { handleHistory } from "./commands/history.ts";
+import { handleNft } from "./commands/nft.ts";
+import { handleCompare } from "./commands/compare.ts";
+
+// Prevent server crash on unhandled errors
+process.on("unhandledRejection", (err) => {
+  console.error("[server] Unhandled rejection:", err instanceof Error ? err.message : err);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[server] Uncaught exception:", err.message);
+});
 
 const app = express();
 app.use(express.json());
@@ -50,12 +64,153 @@ researchRouter.post("/", async (req: express.Request, res: express.Response) => 
     return;
   }
 
+  console.log(`[x402] ✅ Payment verified — research request for ${address}`);
+
   try {
     const report = await research(address);
+    console.log(`[api] ✅ Report sent for ${address}`);
     res.json(report);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[api] Research failed: ${msg}`);
+    console.error(`[api] ❌ Research failed: ${msg}`);
+    res.status(500).json({ error: msg });
+  }
+});
+
+const quickRouter = express.Router();
+
+quickRouter.post("/", async (req: express.Request, res: express.Response) => {
+  const { address } = req.body as { address?: string };
+
+  if (!address?.match(/^0x[a-fA-F0-9]{40}$/)) {
+    res.status(400).json({ error: "Invalid address. Provide a valid 0x Ethereum address." });
+    return;
+  }
+
+  console.log(`[x402] ✅ Payment verified — quick request for ${address}`);
+
+  try {
+    const report = await handleQuick(address);
+    console.log(`[api] ✅ Quick report sent for ${address}`);
+    res.json(report);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[api] ❌ Quick failed: ${msg}`);
+    res.status(500).json({ error: msg });
+  }
+});
+
+const pnlRouter = express.Router();
+
+pnlRouter.post("/", async (req: express.Request, res: express.Response) => {
+  const { address } = req.body as { address?: string };
+
+  if (!address?.match(/^0x[a-fA-F0-9]{40}$/)) {
+    res.status(400).json({ error: "Invalid address. Provide a valid 0x Ethereum address." });
+    return;
+  }
+
+  console.log(`[x402] ✅ Payment verified — pnl request for ${address}`);
+
+  try {
+    const report = await handlePnl(address);
+    console.log(`[api] ✅ PnL report sent for ${address}`);
+    res.json(report);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[api] ❌ PnL failed: ${msg}`);
+    res.status(500).json({ error: msg });
+  }
+});
+
+const defiRouter = express.Router();
+
+defiRouter.post("/", async (req: express.Request, res: express.Response) => {
+  const { address } = req.body as { address?: string };
+
+  if (!address?.match(/^0x[a-fA-F0-9]{40}$/)) {
+    res.status(400).json({ error: "Invalid address. Provide a valid 0x Ethereum address." });
+    return;
+  }
+
+  console.log(`[x402] ✅ Payment verified — defi request for ${address}`);
+
+  try {
+    const report = await handleDefi(address);
+    console.log(`[api] ✅ DeFi report sent for ${address}`);
+    res.json(report);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[api] ❌ DeFi failed: ${msg}`);
+    res.status(500).json({ error: msg });
+  }
+});
+
+const historyRouter = express.Router();
+
+historyRouter.post("/", async (req: express.Request, res: express.Response) => {
+  const { address } = req.body as { address?: string };
+
+  if (!address?.match(/^0x[a-fA-F0-9]{40}$/)) {
+    res.status(400).json({ error: "Invalid address. Provide a valid 0x Ethereum address." });
+    return;
+  }
+
+  console.log(`[x402] ✅ Payment verified — history request for ${address}`);
+
+  try {
+    const report = await handleHistory(address);
+    console.log(`[api] ✅ History report sent for ${address}`);
+    res.json(report);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[api] ❌ History failed: ${msg}`);
+    res.status(500).json({ error: msg });
+  }
+});
+
+const nftRouter = express.Router();
+
+nftRouter.post("/", async (req: express.Request, res: express.Response) => {
+  const { address } = req.body as { address?: string };
+
+  if (!address?.match(/^0x[a-fA-F0-9]{40}$/)) {
+    res.status(400).json({ error: "Invalid address. Provide a valid 0x Ethereum address." });
+    return;
+  }
+
+  console.log(`[x402] ✅ Payment verified — nft request for ${address}`);
+
+  try {
+    const report = await handleNft(address);
+    console.log(`[api] ✅ NFT report sent for ${address}`);
+    res.json(report);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[api] ❌ NFT failed: ${msg}`);
+    res.status(500).json({ error: msg });
+  }
+});
+
+const compareRouter = express.Router();
+
+compareRouter.post("/", async (req: express.Request, res: express.Response) => {
+  const { addressA, addressB } = req.body as { addressA?: string; addressB?: string };
+
+  if (!addressA?.match(/^0x[a-fA-F0-9]{40}$/) || !addressB?.match(/^0x[a-fA-F0-9]{40}$/)) {
+    res.status(400).json({ error: "Invalid addresses. Provide two valid 0x Ethereum addresses (addressA, addressB)." });
+    return;
+  }
+
+  console.log(`[x402] ✅ Payment verified — compare request for ${addressA} vs ${addressB}`);
+
+  try {
+    const report = await handleCompare(addressA, addressB);
+    console.log(`[api] ✅ Compare report sent for ${addressA} vs ${addressB}`);
+    res.json(report);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[api] ❌ Compare failed: ${msg}`);
     res.status(500).json({ error: msg });
   }
 });
@@ -64,7 +219,7 @@ try {
   const cdpKeyId = process.env.CDP_API_KEY_ID;
   const cdpKeySecret = process.env.CDP_API_KEY_SECRET;
 
-  const facilitatorClient = (cdpKeyId && cdpKeySecret)
+  const baseFacilitatorClient = (cdpKeyId && cdpKeySecret)
     ? new HTTPFacilitatorClient({
         url: facilitatorUrl,
         createAuthHeaders: async () => {
@@ -96,6 +251,8 @@ try {
       })
     : new HTTPFacilitatorClient({ url: facilitatorUrl });
 
+  const facilitatorClient = baseFacilitatorClient;
+
   const routes = {
     "POST /research": {
       accepts: {
@@ -105,6 +262,66 @@ try {
         price: "$0.05" as const,
       },
       description: "Deep wallet research report",
+      mimeType: "application/json",
+    },
+    "POST /quick": {
+      accepts: {
+        scheme: "exact" as const,
+        network,
+        payTo,
+        price: "$0.01" as const,
+      },
+      description: "Quick portfolio snapshot",
+      mimeType: "application/json",
+    },
+    "POST /pnl": {
+      accepts: {
+        scheme: "exact" as const,
+        network,
+        payTo,
+        price: "$0.02" as const,
+      },
+      description: "Profit & loss report",
+      mimeType: "application/json",
+    },
+    "POST /defi": {
+      accepts: {
+        scheme: "exact" as const,
+        network,
+        payTo,
+        price: "$0.02" as const,
+      },
+      description: "DeFi positions report",
+      mimeType: "application/json",
+    },
+    "POST /history": {
+      accepts: {
+        scheme: "exact" as const,
+        network,
+        payTo,
+        price: "$0.02" as const,
+      },
+      description: "Transaction history report",
+      mimeType: "application/json",
+    },
+    "POST /nft": {
+      accepts: {
+        scheme: "exact" as const,
+        network,
+        payTo,
+        price: "$0.02" as const,
+      },
+      description: "NFT portfolio report",
+      mimeType: "application/json",
+    },
+    "POST /compare": {
+      accepts: {
+        scheme: "exact" as const,
+        network,
+        payTo,
+        price: "$0.05" as const,
+      },
+      description: "Compare two wallets",
       mimeType: "application/json",
     },
   };
@@ -120,13 +337,25 @@ try {
 }
 
 app.use("/research", researchRouter);
+app.use("/quick", quickRouter);
+app.use("/pnl", pnlRouter);
+app.use("/defi", defiRouter);
+app.use("/history", historyRouter);
+app.use("/nft", nftRouter);
+app.use("/compare", compareRouter);
 
 // Start servers
 const port = parseInt(process.env.PORT ?? "4000");
 
 app.listen(port, () => {
   console.log(`[server] REST API listening on http://localhost:${port}`);
+  console.log(`[server] POST /quick    — $0.01 via x402`);
   console.log(`[server] POST /research — $0.05 via x402`);
+  console.log(`[server] POST /pnl      — $0.02 via x402`);
+  console.log(`[server] POST /defi     — $0.02 via x402`);
+  console.log(`[server] POST /history  — $0.02 via x402`);
+  console.log(`[server] POST /nft      — $0.02 via x402`);
+  console.log(`[server] POST /compare  — $0.05 via x402`);
   console.log(`[server] GET  /health`);
 });
 
