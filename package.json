@@ -1,31 +1,25 @@
 {
-  "name": "ows-intelligence-wire",
+  "name": "ows-deep-research",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "packages/*"
-  ],
   "scripts": {
-    "setup": "npx tsx setup-wallets.ts",
-    "scanner": "npm -w packages/scanner run dev",
-    "enricher": "npm -w packages/enricher run dev",
-    "analyst": "npm -w packages/analyst run dev",
-    "distributor": "npm -w packages/distributor run dev",
-    "trader": "npm -w packages/trader run dev",
-    "dashboard": "npm -w packages/dashboard run dev",
-    "start": "bash start.sh"
+    "dev": "npx tsx src/index.ts",
+    "start": "node --loader tsx src/index.ts"
+  },
+  "dependencies": {
+    "@open-wallet-standard/core": "^1.2.0",
+    "@x402/core": "^2.9.0",
+    "@x402/evm": "^2.9.0",
+    "@x402/express": "^2.9.0",
+    "@xmtp/agent-sdk": "^2.3.0",
+    "express": "^5.0.0",
+    "viem": "^2.47.6"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
-    "concurrently": "^9.1.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
-  },
-  "dependencies": {
-    "@open-wallet-standard/core": "^1.2.0",
-    "@xmtp/agent-sdk": "^2.3.0",
-    "viem": "^2.47.6"
   }
 }

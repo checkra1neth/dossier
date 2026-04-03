@@ -1,1 +1,0 @@
-{"name":"@wire/analyst","version":"1.0.0","private":true,"type":"module","scripts":{"dev":"tsx --watch src/index.ts"},"dependencies":{"@wire/shared":"*","express":"^5.0.0","@x402/core":"^2.9.0","@x402/evm":"^2.9.0","@x402/express":"^2.9.0"}}
