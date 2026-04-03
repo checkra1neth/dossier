@@ -3,7 +3,7 @@ import { envOptional } from "@wire/shared/config";
 import type { EnrichedEvent, Signal } from "@wire/shared/types";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "qwen/qwen3.6-plus:free";
+const MODEL = "arcee-ai/trinity-large-preview:free";
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 3000;
 

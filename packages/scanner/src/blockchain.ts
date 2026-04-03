@@ -12,13 +12,18 @@ const WEI_PER_ETH = 1e18;
 const MIN_VALUE_ETH = 10;
 const POLL_INTERVAL_MS = 10_000;
 
+// Public RPCs that support eth_getBlockByNumber with full txs
+const RPCS = [
+  "https://eth.llamarpc.com",
+  "https://rpc.ankr.com/eth",
+  "https://ethereum-rpc.publicnode.com",
+  "https://1rpc.io/eth",
+];
+
+let currentRpcIndex = 0;
+
 function getRpcUrl(): string {
-  const uniblockKey = envOptional("UNIBLOCK_API_KEY");
-  if (uniblockKey) {
-    return `https://api.uniblock.dev/uni/v1/ethereum?apikey=${uniblockKey}`;
-  }
-  console.log("[scanner] No UNIBLOCK_API_KEY — using Cloudflare public RPC");
-  return "https://cloudflare-eth.com";
+  return RPCS[currentRpcIndex % RPCS.length];
 }
 
 interface RpcResponse {
@@ -47,7 +52,7 @@ async function fetchLatestBlock(rpcUrl: string): Promise<RpcResponse> {
       method: "eth_getBlockByNumber",
       params: ["latest", true],
     }),
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(10_000),
   });
 
   if (!res.ok) {
@@ -59,7 +64,7 @@ async function fetchLatestBlock(rpcUrl: string): Promise<RpcResponse> {
 
 export function startBlockchainStream(onEvent: (tx: AlliumTx) => void): void {
   const rpcUrl = getRpcUrl();
-  console.log(`[scanner] Polling Ethereum blocks every ${POLL_INTERVAL_MS / 1000}s via ${rpcUrl.includes("uniblock") ? "Uniblock" : "Cloudflare"} RPC`);
+  console.log(`[scanner] Polling Ethereum blocks every ${POLL_INTERVAL_MS / 1000}s via ${rpcUrl.includes("uniblock") ? "Uniblock" : "public"} RPC`);
 
   const poll = async (): Promise<void> => {
     try {
@@ -106,6 +111,9 @@ export function startBlockchainStream(onEvent: (tx: AlliumTx) => void): void {
       }
     } catch (err) {
       console.error(`[scanner] Poll error: ${err instanceof Error ? err.message : err}`);
+      // Try next RPC on error
+      currentRpcIndex++;
+      console.log(`[scanner] Switching to next RPC: ${RPCS[currentRpcIndex % RPCS.length]}`);
     }
   };
 

@@ -50,16 +50,28 @@ try {
     process.env.FACILITATOR_URL || "https://x402.org/facilitator";
   const payTo = wireAgent.address;
 
-  const facilitatorClient = new HTTPFacilitatorClient(facilitatorUrl);
+  const facilitatorClient = new HTTPFacilitatorClient({ url: facilitatorUrl });
   const resourceServer = new x402ResourceServer(facilitatorClient);
 
   const network = "eip155:84532";
   resourceServer.register(network, new ExactEvmScheme());
 
   const routes = {
-    "GET /api/signals": { price: "$0.01", network, payTo },
-    "GET /api/signals/latest": { price: "$0.005", network, payTo },
-    "GET /api/history": { price: "$0.05", network, payTo },
+    "GET /api/signals": {
+      accepts: [{ scheme: "exact", price: "$0.01", network, payTo }],
+      description: "Latest intelligence signals",
+      mimeType: "application/json",
+    },
+    "GET /api/signals/latest": {
+      accepts: [{ scheme: "exact", price: "$0.005", network, payTo }],
+      description: "Single latest signal",
+      mimeType: "application/json",
+    },
+    "GET /api/history": {
+      accepts: [{ scheme: "exact", price: "$0.05", network, payTo }],
+      description: "24h signal history",
+      mimeType: "application/json",
+    },
   };
 
   const middleware = paymentMiddleware(routes, resourceServer);
