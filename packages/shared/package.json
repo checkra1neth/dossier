@@ -1,0 +1,13 @@
+{
+  "name": "@wire/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/types.ts",
+    "./types": "./src/types.ts",
+    "./config": "./src/config.ts",
+    "./sse": "./src/sse.ts",
+    "./xmtp": "./src/xmtp.ts"
+  }
+}

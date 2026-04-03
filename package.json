@@ -1,0 +1,30 @@
+{
+  "name": "ows-intelligence-wire",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "setup": "npx tsx setup-wallets.ts",
+    "scanner": "npm -w packages/scanner run dev",
+    "enricher": "npm -w packages/enricher run dev",
+    "analyst": "npm -w packages/analyst run dev",
+    "distributor": "npm -w packages/distributor run dev",
+    "trader": "npm -w packages/trader run dev",
+    "dashboard": "npm -w packages/dashboard run dev",
+    "start": "bash start.sh"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "concurrently": "^9.1.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "@xmtp/agent-sdk": "^2.3.0",
+    "viem": "^2.47.6"
+  }
+}
