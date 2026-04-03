@@ -1,5 +1,5 @@
 /**
- * Comprehensive Zerion API client for OWS Intelligence Wire.
+ * Comprehensive Zerion API client for Dossier.
  *
  * Covers: portfolio, positions (simple + DeFi), PnL, transactions, NFT collections.
  * Includes per-URL caching (5 min TTL) and retry with exponential backoff on 429.
