@@ -55,15 +55,43 @@ function createOwsSigner(walletName: string): { signer: Signer; address: string 
 // Execute x402 payment via OWS CLI (EIP-3009, gasless)
 function executeX402Payment(walletName: string, targetAddress: string): string {
   const body = JSON.stringify({ address: targetAddress });
-  const cmd = `ows pay request "${SERVER_URL}/research" --wallet "${walletName}" --method POST --body '${body}' --no-passphrase`;
+  const cmd = `ows pay request "${SERVER_URL}/research" --wallet "${walletName}" --method POST --body '${body}' --no-passphrase 2>&1`;
 
   console.log(`\n🔐 Executing x402 payment via OWS...`);
   console.log(`   ows pay request → ${SERVER_URL}/research`);
   console.log(`   Wallet: ${walletName}`);
   console.log(`   EIP-3009 TransferWithAuthorization (gasless)\n`);
 
-  const result = execSync(cmd, { encoding: "utf-8", timeout: 0 });
-  return result;
+  try {
+    const result = execSync(cmd, { encoding: "utf-8", timeout: 0 });
+
+    // Parse ows output — check for payment status
+    if (result.includes("Paid")) {
+      const paidLine = result.split("\n").find(l => l.includes("Paid"));
+      console.log(`✅ ${paidLine}`);
+    }
+
+    if (result.includes("insufficient") || result.includes("Insufficient") || result.includes("balance")) {
+      console.log(`❌ Insufficient USDC balance. Top up your wallet and try again.`);
+      return "";
+    }
+
+    // Extract JSON response (last line or after "Paid" line)
+    const lines = result.trim().split("\n");
+    const jsonLine = lines.find(l => l.startsWith("{") && l.length > 10);
+    if (jsonLine) {
+      console.log(`✅ Research report received!`);
+      return jsonLine;
+    }
+
+    return result;
+  } catch (err) {
+    const output = (err as { stdout?: string; stderr?: string }).stdout ?? (err as Error).message;
+    if (output.includes("insufficient") || output.includes("Insufficient") || output.includes("balance")) {
+      throw new Error("Insufficient USDC balance on Base. Top up your wallet.");
+    }
+    throw err;
+  }
 }
 
 // Store pending state
@@ -154,19 +182,42 @@ async function main() {
       }
 
       try {
-        // Use ows pay request for x402 (EIP-3009 gasless payment)
         const result = executeX402Payment(CLIENT_WALLET, pendingAddress);
-        console.log(`\n📊 Research result (via x402):\n${"-".repeat(50)}`);
-        console.log(result);
-        console.log(`${"-".repeat(50)}\n`);
 
-        // Also notify the XMTP agent
-        await dm.sendText(`✅ Paid via x402. Research for ${pendingAddress} completed via REST API.`);
+        if (!result) {
+          rl.prompt();
+          return;
+        }
+
+        // Try to parse and display nicely
+        try {
+          const report = JSON.parse(result);
+          const d = report.data;
+          const a = report.analysis;
+          const usd = (v: number) => v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+          console.log(`\n📊 RESEARCH REPORT: ${report.address.slice(0,6)}...${report.address.slice(-4)}`);
+          console.log(`${"━".repeat(50)}`);
+          console.log(`💰 Total Value: $${usd(d.totalValueUsd)}`);
+          console.log(`🔗 Chains: ${d.chains.length}`);
+          console.log(`🧠 Smart Money: ${d.isSmartMoney ? "YES" : "NO"}`);
+          console.log(`⚠️  Risk: ${a.riskLevel.toUpperCase()}`);
+          console.log(`\n🏦 TOP POSITIONS`);
+          d.topPositions.slice(0, 5).forEach((p: { asset: string; valueUsd: number; percentage: number }) => {
+            console.log(`   ${p.asset}: $${usd(p.valueUsd)} (${p.percentage}%)`);
+          });
+          console.log(`\n🏁 VERDICT: ${a.verdict}`);
+          console.log(`${"━".repeat(50)}\n`);
+        } catch {
+          console.log(`\n📊 Raw result:\n${result}\n`);
+        }
+
+        await dm.sendText(`✅ Paid via x402. Research for ${pendingAddress} completed.`);
         pendingAddress = null;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.log(`❌ Payment failed: ${msg}`);
-        console.log(`💡 Make sure you have USDC on Base in wallet ${myAddress}`);
+        console.log(`\n❌ Payment failed: ${msg}`);
+        console.log(`💡 Make sure you have USDC on Base in wallet ${myAddress}\n`);
       }
       rl.prompt();
       return;
