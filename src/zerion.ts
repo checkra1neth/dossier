@@ -56,26 +56,37 @@ export async function fetchWalletData(address: string): Promise<ZerionData> {
   const [portfolioRes, positionsRes] = await Promise.all([
     fetchWithRetry(`https://api.zerion.io/v1/wallets/${address}/portfolio?currency=usd`, headers),
     fetchWithRetry(
-      `https://api.zerion.io/v1/wallets/${address}/positions/?filter[positions]=no_filter&currency=usd&page[size]=10&sort=-value`,
+      `https://api.zerion.io/v1/wallets/${address}/positions/?filter[positions]=only_simple&filter[trash]=only_non_trash&currency=usd&page[size]=100&sort=-value`,
       headers,
     ),
   ]);
 
   const portfolio = (await portfolioRes.json()) as {
-    data: { attributes: { total: { positions: number }; chains_distribution: Record<string, number> } };
+    data: { attributes: { total: { positions: number }; positions_distribution_by_chain: Record<string, number> } };
   };
   const positions = (await positionsRes.json()) as {
-    data: { attributes: { name: string; value: number } }[];
+    data: {
+      attributes: {
+        fungible_info: { name: string; symbol: string };
+        value: number | null;
+        quantity: { float: number };
+      };
+      relationships: { chain: { data: { id: string } } };
+    }[];
   };
 
   const totalValueUsd = portfolio.data.attributes.total.positions;
-  const chains = Object.keys(portfolio.data.attributes.chains_distribution ?? {});
+  const chains = Object.keys(portfolio.data.attributes.positions_distribution_by_chain ?? {});
 
-  const topPositions = positions.data.map((p) => ({
-    asset: p.attributes.name,
-    valueUsd: p.attributes.value,
-    percentage: totalValueUsd > 0 ? Math.round((p.attributes.value / totalValueUsd) * 1000) / 10 : 0,
-  }));
+  const topPositions = positions.data
+    .filter((p) => p.attributes.value != null && p.attributes.value > 1)
+    .sort((a, b) => (b.attributes.value ?? 0) - (a.attributes.value ?? 0))
+    .slice(0, 10)
+    .map((p) => ({
+      asset: p.attributes.fungible_info.symbol,
+      valueUsd: p.attributes.value!,
+      percentage: totalValueUsd > 0 ? Math.round((p.attributes.value! / totalValueUsd) * 1000) / 10 : 0,
+    }));
 
   const result: ZerionData = {
     totalValueUsd,

@@ -1,13 +1,13 @@
 import type { ZerionData, Analysis } from "./types.ts";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "qwen/qwen3-235b-a22b:free";
+const MODEL = "qwen/qwen3.6-plus:free";
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 3000;
 
 function buildPrompt(address: string, data: ZerionData): string {
   const positionsText = data.topPositions
-    .map((p, i) => `${i + 1}. ${p.asset}: $${p.valueUsd.toLocaleString()} (${p.percentage}%)`)
+    .map((p, i) => `${i + 1}. ${p.asset ?? "Unknown"}: $${(p.valueUsd ?? 0).toLocaleString()} (${p.percentage ?? 0}%)`)
     .join("\n");
 
   return `You are an expert on-chain intelligence analyst. Analyze this wallet and produce a comprehensive research report.
