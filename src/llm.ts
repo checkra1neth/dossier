@@ -1,14 +1,47 @@
 import type { ZerionData, Analysis } from "./types.ts";
+import type { DefiPosition, PnlData, Transaction } from "./services/zerion.ts";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL = "qwen/qwen3.6-plus:free";
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 3000;
 
-function buildPrompt(address: string, data: ZerionData): string {
+function buildPrompt(
+  address: string,
+  data: ZerionData,
+  defi?: DefiPosition[],
+  pnl?: PnlData | null,
+  transactions?: Transaction[],
+): string {
   const positionsText = data.topPositions
     .map((p, i) => `${i + 1}. ${p.asset ?? "Unknown"}: $${(p.valueUsd ?? 0).toLocaleString("en-US")} (${p.percentage ?? 0}%)`)
     .join("\n");
+
+  let defiText = "";
+  if (defi && defi.length > 0) {
+    const lines = defi.map(
+      (d) => `- ${d.protocol}: ${d.asset} $${d.valueUsd.toLocaleString("en-US")} (${d.type})`,
+    );
+    defiText = `\n\n**DeFi Positions:**\n${lines.join("\n")}`;
+  }
+
+  let pnlText = "";
+  if (pnl) {
+    pnlText =
+      `\n\n**PnL:**\n` +
+      `Realized: $${pnl.realizedGain.toLocaleString("en-US")}, ` +
+      `Unrealized: $${pnl.unrealizedGain.toLocaleString("en-US")}, ` +
+      `Net invested: $${pnl.netInvested.toLocaleString("en-US")}`;
+  }
+
+  let txText = "";
+  if (transactions && transactions.length > 0) {
+    const lines = transactions.map((tx) => {
+      const symbols = tx.transfers.map((t) => t.symbol).join(", ");
+      return `- ${tx.type}: ${symbols || "N/A"} (${tx.chain})`;
+    });
+    txText = `\n\n**Recent Activity (${transactions.length} transactions):**\n${lines.join("\n")}`;
+  }
 
   return `You are an expert on-chain intelligence analyst. Analyze this wallet and produce a comprehensive research report.
 
@@ -21,7 +54,7 @@ function buildPrompt(address: string, data: ZerionData): string {
 - Number of Positions: ${data.positionCount}
 
 **Top Positions:**
-${positionsText || "No positions found"}
+${positionsText || "No positions found"}${defiText}${pnlText}${txText}
 
 ## Your Task
 
@@ -41,11 +74,17 @@ Respond ONLY with valid JSON (no markdown fences, no commentary):
 }`;
 }
 
-export async function analyzeWallet(address: string, data: ZerionData): Promise<Analysis> {
+export async function analyzeWallet(
+  address: string,
+  data: ZerionData,
+  defi?: DefiPosition[],
+  pnl?: PnlData | null,
+  transactions?: Transaction[],
+): Promise<Analysis> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set");
 
-  const prompt = buildPrompt(address, data);
+  const prompt = buildPrompt(address, data, defi, pnl, transactions);
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
