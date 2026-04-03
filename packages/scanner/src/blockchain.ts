@@ -64,7 +64,7 @@ async function fetchLatestBlock(rpcUrl: string): Promise<RpcResponse> {
 
 export function startBlockchainStream(onEvent: (tx: AlliumTx) => void): void {
   const rpcUrl = getRpcUrl();
-  console.log(`[scanner] Polling Ethereum blocks every ${POLL_INTERVAL_MS / 1000}s via ${rpcUrl.includes("uniblock") ? "Uniblock" : "public"} RPC`);
+  console.log(`[scanner] Polling Ethereum blocks every ${POLL_INTERVAL_MS / 1000}s via public RPC`);
 
   const poll = async (): Promise<void> => {
     try {
