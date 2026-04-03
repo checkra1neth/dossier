@@ -12,7 +12,7 @@ async function main(): Promise<void> {
   const wireAgent = await createWireAgent("scanner");
 
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: "5mb" }));
 
   // SSE endpoint for dashboard
   app.get("/events", sseHandler);
@@ -45,7 +45,7 @@ async function main(): Promise<void> {
   });
 
   // Wire message endpoint (receive messages from other agents)
-  app.post("/wire-message", express.json(), wireMessageHandler(wireAgent));
+  app.post("/wire-message", express.json({ limit: "5mb" }), wireMessageHandler(wireAgent));
 
   // Start blockchain whale stream
   startBlockchainStream(async (tx: AlliumTx) => {

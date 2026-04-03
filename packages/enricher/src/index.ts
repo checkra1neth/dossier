@@ -12,7 +12,7 @@ import {
 import { getWalletProfile } from "./zerion.ts";
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: "5mb" }));
 
 app.get("/events", sseHandler);
 app.get("/health", (_req, res) => {
