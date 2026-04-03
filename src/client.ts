@@ -205,16 +205,27 @@ async function main() {
     prompt: "you> ",
   });
 
-  console.log(`🎯 OWS Intelligence Wire. Commands:`);
-  console.log(`   /quick 0x<addr>        — portfolio snapshot ($0.01)`);
-  console.log(`   /research 0x<addr>     — deep research ($0.05)`);
-  console.log(`   /pnl 0x<addr>          — profit & loss ($0.02)`);
-  console.log(`   /defi 0x<addr>         — DeFi positions ($0.02)`);
-  console.log(`   /history 0x<addr>      — tx history ($0.02)`);
-  console.log(`   /nft 0x<addr>          — NFT portfolio ($0.02)`);
-  console.log(`   /compare 0x<a> 0x<b>   — compare wallets ($0.05)`);
-  console.log(`   pay                    — approve payment (x402 + OWS, gasless)`);
-  console.log(`   quit                   — exit\n`);
+  console.log(`🎯 OWS Intelligence Wire. Commands:\n`);
+  console.log(` 📊 Analytics:`);
+  console.log(`   /quick 0x<addr>          — portfolio snapshot ($0.01)`);
+  console.log(`   /research 0x<addr>       — deep research ($0.05)`);
+  console.log(`   /pnl 0x<addr>            — profit & loss ($0.02)`);
+  console.log(`   /defi 0x<addr>           — DeFi positions ($0.02)`);
+  console.log(`   /history 0x<addr>        — tx history ($0.02)`);
+  console.log(`   /nft 0x<addr>            — NFT portfolio ($0.02)`);
+  console.log(`   /compare 0x<a> 0x<b>     — compare wallets ($0.05)`);
+  console.log(` 💰 Wallet:`);
+  console.log(`   /balance                 — your wallet balance (free)`);
+  console.log(`   /send <amt> <tok> to <addr> — send tokens ($0.01)`);
+  console.log(`   /swap <amt> <tok> to <tok>  — swap tokens ($0.01)`);
+  console.log(`   /bridge <amt> <tok> from <chain> to <chain> ($0.01)`);
+  console.log(` 👁️ Monitoring:`);
+  console.log(`   /watch 0x<addr>          — watch wallet activity ($0.10)`);
+  console.log(`   /unwatch 0x<addr>        — stop watching (free)`);
+  console.log(` ⚙️ Other:`);
+  console.log(`   pay                      — approve x402 payment`);
+  console.log(`   confirm / cancel         — confirm/cancel pending action`);
+  console.log(`   quit                     — exit\n`);
 
   rl.prompt();
 

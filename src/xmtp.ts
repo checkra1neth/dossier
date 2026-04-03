@@ -239,9 +239,10 @@ export async function startXmtpAgent(): Promise<Agent> {
 
   router.command("/balance", "Check your wallet balance (free)", async (ctx) => {
     if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
-    console.log(`[xmtp] /balance`);
+    const senderAddress = await ctx.getSenderAddress();
+    console.log(`[xmtp] /balance for ${senderAddress}`);
     try {
-      const report = await handleBalance(owsWalletName);
+      const report = await handleBalance(senderAddress ?? owsWalletName);
       console.log(`[xmtp] ✅ /balance done — $${report.totalUsd.toLocaleString()}`);
       await ctx.conversation.sendText(balanceToText(report));
     } catch (err) {
