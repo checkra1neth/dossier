@@ -78,22 +78,28 @@ export async function fetchWalletData(address: string): Promise<ZerionData> {
   const totalValueUsd = portfolio.data.attributes.total.positions;
   const chains = Object.keys(portfolio.data.attributes.positions_distribution_by_chain ?? {});
 
-  const topPositions = positions.data
+  const filteredPositions = positions.data
     .filter((p) => p.attributes.value != null && p.attributes.value > 1)
     .sort((a, b) => (b.attributes.value ?? 0) - (a.attributes.value ?? 0))
-    .slice(0, 10)
-    .map((p) => ({
-      asset: p.attributes.fungible_info.symbol,
-      valueUsd: p.attributes.value!,
-      percentage: totalValueUsd > 0 ? Math.round((p.attributes.value! / totalValueUsd) * 1000) / 10 : 0,
-    }));
+    .slice(0, 10);
+
+  const realSum = filteredPositions.reduce((s, p) => s + (p.attributes.value ?? 0), 0);
+
+  const topPositions = filteredPositions.map((p) => ({
+    asset: p.attributes.fungible_info.symbol,
+    valueUsd: p.attributes.value!,
+    percentage: realSum > 0 ? Math.round((p.attributes.value! / realSum) * 1000) / 10 : 0,
+  }));
+
+  // Use sum of real positions (value > $1) instead of Zerion's total which includes spam/dust
+  const realTotalUsd = topPositions.reduce((sum, p) => sum + p.valueUsd, 0);
 
   const result: ZerionData = {
-    totalValueUsd,
+    totalValueUsd: realTotalUsd > 0 ? realTotalUsd : totalValueUsd,
     chains,
     topPositions,
-    isSmartMoney: totalValueUsd > 5_000_000,
-    positionCount: positions.data.length,
+    isSmartMoney: realTotalUsd > 5_000_000,
+    positionCount: topPositions.length,
   };
 
   cache.set(address.toLowerCase(), { data: result, timestamp: Date.now() });

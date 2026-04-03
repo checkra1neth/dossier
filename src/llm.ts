@@ -7,7 +7,7 @@ const RETRY_DELAY_MS = 3000;
 
 function buildPrompt(address: string, data: ZerionData): string {
   const positionsText = data.topPositions
-    .map((p, i) => `${i + 1}. ${p.asset ?? "Unknown"}: $${(p.valueUsd ?? 0).toLocaleString()} (${p.percentage ?? 0}%)`)
+    .map((p, i) => `${i + 1}. ${p.asset ?? "Unknown"}: $${(p.valueUsd ?? 0).toLocaleString("en-US")} (${p.percentage ?? 0}%)`)
     .join("\n");
 
   return `You are an expert on-chain intelligence analyst. Analyze this wallet and produce a comprehensive research report.
@@ -15,7 +15,7 @@ function buildPrompt(address: string, data: ZerionData): string {
 ## Wallet: ${address}
 
 **Portfolio:**
-- Total Value: $${data.totalValueUsd.toLocaleString()}
+- Total Value: $${data.totalValueUsd.toLocaleString("en-US")}
 - Active Chains: ${data.chains.join(", ") || "unknown"}
 - Smart Money (>$5M): ${data.isSmartMoney ? "YES" : "NO"}
 - Number of Positions: ${data.positionCount}
@@ -34,7 +34,7 @@ Produce a deep analysis covering:
 
 Respond ONLY with valid JSON (no markdown fences, no commentary):
 {
-  "summary": "<comprehensive markdown report with ## headers, bullet points, bold text — at least 200 words>",
+  "summary": "<comprehensive plain text report, NO markdown, use simple bullet points with •, at least 200 words>",
   "riskLevel": "low" | "medium" | "high",
   "patterns": ["<pattern 1>", "<pattern 2>", ...],
   "verdict": "<one sentence final verdict>"
@@ -103,7 +103,7 @@ function fallbackAnalysis(data: ZerionData): Analysis {
   const riskLevel = concentration > 70 ? "high" : concentration > 40 ? "medium" : "low";
 
   return {
-    summary: `## Basic Analysis\n\nPortfolio value: **$${data.totalValueUsd.toLocaleString()}** across ${data.chains.length} chains.\n\n${data.isSmartMoney ? "**Smart Money wallet** (>$5M)." : "Standard wallet."}\n\nTop holding: ${topAsset?.asset ?? "N/A"} at ${concentration}%.\n\n*LLM analysis was unavailable. This is a basic data summary.*`,
+    summary: `## Basic Analysis\n\nPortfolio value: **$${data.totalValueUsd.toLocaleString("en-US")}** across ${data.chains.length} chains.\n\n${data.isSmartMoney ? "**Smart Money wallet** (>$5M)." : "Standard wallet."}\n\nTop holding: ${topAsset?.asset ?? "N/A"} at ${concentration}%.\n\n*LLM analysis was unavailable. This is a basic data summary.*`,
     riskLevel,
     patterns: data.isSmartMoney ? ["High-value wallet"] : ["Standard wallet"],
     verdict: data.isSmartMoney
