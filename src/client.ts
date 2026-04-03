@@ -62,7 +62,7 @@ function executeX402Payment(walletName: string, targetAddress: string): string {
   console.log(`   Wallet: ${walletName}`);
   console.log(`   EIP-3009 TransferWithAuthorization (gasless)\n`);
 
-  const result = execSync(cmd, { encoding: "utf-8", timeout: 60000 });
+  const result = execSync(cmd, { encoding: "utf-8", timeout: 120000 });
   return result;
 }
 
