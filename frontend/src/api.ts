@@ -1,4 +1,4 @@
-export type Command = "quick" | "research" | "pnl" | "defi" | "history" | "nft" | "compare";
+export type Command = "quick" | "research" | "pnl" | "defi" | "history" | "nft" | "compare" | "balance" | "swap" | "bridge" | "send" | "watch" | "unwatch";
 
 export const COMMANDS: { cmd: Command; label: string; price: string }[] = [
   { cmd: "quick", label: "/quick", price: "$0.01" },
@@ -8,6 +8,12 @@ export const COMMANDS: { cmd: Command; label: string; price: string }[] = [
   { cmd: "history", label: "/history", price: "$0.02" },
   { cmd: "nft", label: "/nft", price: "$0.02" },
   { cmd: "compare", label: "/compare", price: "$0.05" },
+  { cmd: "balance", label: "/balance", price: "FREE" },
+  { cmd: "swap", label: "/swap", price: "$0.01" },
+  { cmd: "bridge", label: "/bridge", price: "$0.01" },
+  { cmd: "send", label: "/send", price: "$0.01" },
+  { cmd: "watch", label: "/watch", price: "$0.10" },
+  { cmd: "unwatch", label: "/unwatch", price: "FREE" },
 ];
 
 export function getPrice(cmd: Command): string {
@@ -30,5 +36,14 @@ export async function query<T>(command: Command, body: Record<string, string>): 
     throw new Error(err.error || `Request failed: ${res.status}`);
   }
 
+  return res.json() as Promise<T>;
+}
+
+export async function queryGet<T>(path: string): Promise<T> {
+  const res = await fetch(path);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `Request failed: ${res.status}`);
+  }
   return res.json() as Promise<T>;
 }
