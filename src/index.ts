@@ -2,12 +2,17 @@ import "dotenv/config";
 import express from "express";
 import {
   paymentMiddleware,
+  paymentMiddlewareFromConfig,
   x402ResourceServer,
 } from "@x402/express";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { HTTPFacilitatorClient } from "@x402/core/server";
 import type { Network } from "@x402/core/types";
-import { privateKeyToAddress } from "viem/accounts";
+import {
+  getWallet as owsGetWallet,
+  createWallet as owsCreateWallet,
+  listWallets as owsListWallets,
+} from "@open-wallet-standard/core";
 import { research } from "./pipeline.ts";
 
 const app = express();
@@ -18,12 +23,22 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "ows-deep-research", uptime: process.uptime() });
 });
 
-// x402 payment setup
+// OWS wallet for receiving payments
+const owsWalletName = process.env.OWS_WALLET_NAME || "research-agent";
+const wallets = owsListWallets();
+if (!wallets.find((w: { name: string }) => w.name === owsWalletName)) {
+  owsCreateWallet(owsWalletName);
+}
+const owsWallet = owsGetWallet(owsWalletName);
+const evmAccount = owsWallet?.accounts.find((a: { chainId: string }) => a.chainId.startsWith("eip155:"));
+const payTo = evmAccount?.address ?? "";
+
+// x402 payment setup — Base mainnet
 const facilitatorUrl = process.env.FACILITATOR_URL ?? "https://x402.org/facilitator";
-const network = (process.env.CHAIN_NETWORK ?? "eip155:84532") as Network;
-const payTo = process.env.WALLET_KEY
-  ? privateKeyToAddress(process.env.WALLET_KEY as `0x${string}`)
-  : "";
+const network = (process.env.CHAIN_NETWORK ?? "eip155:8453") as Network;
+
+console.log(`[ows] Wallet "${owsWalletName}" → ${payTo}`);
+console.log(`[x402] Network: ${network}, payTo: ${payTo}`);
 
 const researchRouter = express.Router();
 
@@ -46,20 +61,60 @@ researchRouter.post("/", async (req: express.Request, res: express.Response) => 
 });
 
 try {
-  const facilitatorClient = new HTTPFacilitatorClient({ url: facilitatorUrl });
-  const resourceServer = new x402ResourceServer(facilitatorClient);
-  resourceServer.register(network, new ExactEvmScheme());
+  const cdpKeyId = process.env.CDP_API_KEY_ID;
+  const cdpKeySecret = process.env.CDP_API_KEY_SECRET;
+
+  const facilitatorClient = (cdpKeyId && cdpKeySecret)
+    ? new HTTPFacilitatorClient({
+        url: facilitatorUrl,
+        createAuthHeaders: async () => {
+          const { generateJwt } = await import("@coinbase/cdp-sdk/auth");
+          const facilitatorHost = new URL(facilitatorUrl).host;
+          const basePath = new URL(facilitatorUrl).pathname;
+
+          const mkJwt = (method: string, path: string) =>
+            generateJwt({
+              apiKeyId: cdpKeyId,
+              apiKeySecret: cdpKeySecret,
+              requestMethod: method,
+              requestHost: facilitatorHost,
+              requestPath: path,
+            });
+
+          const [verifyToken, settleToken, supportedToken] = await Promise.all([
+            mkJwt("POST", `${basePath}/verify`),
+            mkJwt("POST", `${basePath}/settle`),
+            mkJwt("GET", `${basePath}/supported`),
+          ]);
+
+          return {
+            verify: { Authorization: `Bearer ${verifyToken}` },
+            settle: { Authorization: `Bearer ${settleToken}` },
+            supported: { Authorization: `Bearer ${supportedToken}` },
+          };
+        },
+      })
+    : new HTTPFacilitatorClient({ url: facilitatorUrl });
 
   const routes = {
     "POST /research": {
-      accepts: [{ scheme: "exact", price: "$0.05" as const, network, payTo }],
+      accepts: {
+        scheme: "exact" as const,
+        network,
+        payTo,
+        price: "$0.05" as const,
+      },
       description: "Deep wallet research report",
       mimeType: "application/json",
     },
   };
 
-  app.use(paymentMiddleware(routes, resourceServer));
-  console.log("[x402] Payment middleware loaded — POST /research costs $0.05");
+  app.use(
+    paymentMiddlewareFromConfig(routes, facilitatorClient, [
+      { network: network as Network, server: new ExactEvmScheme() },
+    ]),
+  );
+  console.log(`[x402] Payment middleware loaded — POST /research costs $0.05 (CDP auth: ${cdpKeyId ? "yes" : "no"})`);
 } catch (err) {
   console.warn("[x402] Payment middleware unavailable, serving without gate:", (err as Error).message);
 }
