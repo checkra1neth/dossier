@@ -25,7 +25,7 @@ Transaction:
 
 Wallet Profile:
 - Total Value: $${event.walletProfile.totalValueUsd.toLocaleString()}
-- Top Positions: ${event.walletProfile.topPositions.map((p) => `${p.asset}: $${p.valueUsd.toLocaleString()}`).join(", ")}
+- Top Positions: ${event.walletProfile.topPositions.map((p) => `${p.asset ?? "?"}: $${(p.valueUsd ?? 0).toLocaleString()}`).join(", ")}
 - Transactions (30d): ${event.walletProfile.txCount30d}
 - Smart Money: ${event.walletProfile.isSmartMoney}
 
