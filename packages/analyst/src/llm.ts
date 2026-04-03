@@ -3,7 +3,7 @@ import { envOptional } from "@wire/shared/config";
 import type { EnrichedEvent, Signal } from "@wire/shared/types";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "meta-llama/llama-4-scout:free";
+const MODEL = "qwen/qwen3.6-plus:free";
 
 function mockSignal(event: EnrichedEvent): Signal {
   const isSmartMoney = event.walletProfile.isSmartMoney;
