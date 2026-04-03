@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "npx tsx src/index.ts",
+    "client": "npx tsx src/client.ts",
     "start": "node --loader tsx src/index.ts"
   },
   "dependencies": {
