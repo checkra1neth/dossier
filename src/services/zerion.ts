@@ -208,10 +208,10 @@ interface ZerionNftCollectionsResponse {
   data: {
     attributes: {
       collection_info: { name: string };
-      nfts_count: number;
+      nfts_count: string | number;
       total_floor_price: number | null;
     };
-    relationships: { chain: { data: { id: string } } };
+    relationships: { chains: { data: { id: string }[] } };
   }[];
 }
 
@@ -356,8 +356,8 @@ export async function fetchNftCollections(
 
   return json.data.map((c) => ({
     name: c.attributes.collection_info.name,
-    count: c.attributes.nfts_count,
+    count: typeof c.attributes.nfts_count === "string" ? parseInt(c.attributes.nfts_count, 10) : c.attributes.nfts_count,
     floorPrice: c.attributes.total_floor_price ?? 0,
-    chain: c.relationships.chain.data.id,
+    chain: c.relationships.chains?.data?.[0]?.id ?? "unknown",
   }));
 }

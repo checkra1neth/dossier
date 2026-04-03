@@ -146,10 +146,12 @@ export async function startXmtpAgent(): Promise<Agent> {
     const text = ctx.message.content as string;
     const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
     if (!address) { await ctx.conversation.sendText("Usage: /quick 0x<address>"); return; }
+    console.log(`[xmtp] /quick ${address}`);
     try {
       const report = await handleQuick(address);
+      console.log(`[xmtp] ✅ /quick done — $${report.portfolio.totalValueUsd.toLocaleString()}`);
       await ctx.conversation.sendText(quickToText(report));
-    } catch (err) { await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
+    } catch (err) { console.error(`[xmtp] ❌ /quick failed:`, err); await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
   });
 
   router.command("/pnl", "Profit & loss report ($0.02)", async (ctx) => {
@@ -157,10 +159,12 @@ export async function startXmtpAgent(): Promise<Agent> {
     const text = ctx.message.content as string;
     const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
     if (!address) { await ctx.conversation.sendText("Usage: /pnl 0x<address>"); return; }
+    console.log(`[xmtp] /pnl ${address}`);
     try {
       const report = await handlePnl(address);
+      console.log(`[xmtp] ✅ /pnl done — ROI ${report.roi.toFixed(1)}%`);
       await ctx.conversation.sendText(pnlToText(report));
-    } catch (err) { await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
+    } catch (err) { console.error(`[xmtp] ❌ /pnl failed:`, err); await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
   });
 
   router.command("/defi", "DeFi positions report ($0.02)", async (ctx) => {
@@ -168,10 +172,12 @@ export async function startXmtpAgent(): Promise<Agent> {
     const text = ctx.message.content as string;
     const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
     if (!address) { await ctx.conversation.sendText("Usage: /defi 0x<address>"); return; }
+    console.log(`[xmtp] /defi ${address}`);
     try {
       const report = await handleDefi(address);
+      console.log(`[xmtp] ✅ /defi done — ${report.positions.length} positions, $${report.totalDefiUsd.toLocaleString()}`);
       await ctx.conversation.sendText(defiToText(report));
-    } catch (err) { await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
+    } catch (err) { console.error(`[xmtp] ❌ /defi failed:`, err); await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
   });
 
   router.command("/history", "Transaction history report ($0.02)", async (ctx) => {
@@ -179,10 +185,12 @@ export async function startXmtpAgent(): Promise<Agent> {
     const text = ctx.message.content as string;
     const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
     if (!address) { await ctx.conversation.sendText("Usage: /history 0x<address>"); return; }
+    console.log(`[xmtp] /history ${address}`);
     try {
       const report = await handleHistory(address);
+      console.log(`[xmtp] ✅ /history done — ${report.transactions.length} txns, ${report.frequency}`);
       await ctx.conversation.sendText(historyToText(report));
-    } catch (err) { await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
+    } catch (err) { console.error(`[xmtp] ❌ /history failed:`, err); await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
   });
 
   router.command("/nft", "NFT portfolio report ($0.02)", async (ctx) => {
@@ -190,10 +198,12 @@ export async function startXmtpAgent(): Promise<Agent> {
     const text = ctx.message.content as string;
     const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
     if (!address) { await ctx.conversation.sendText("Usage: /nft 0x<address>"); return; }
+    console.log(`[xmtp] /nft ${address}`);
     try {
       const report = await handleNft(address);
+      console.log(`[xmtp] ✅ /nft done — ${report.collections.length} collections, $${report.totalEstimatedUsd.toLocaleString()}`);
       await ctx.conversation.sendText(nftToText(report));
-    } catch (err) { await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
+    } catch (err) { console.error(`[xmtp] ❌ /nft failed:`, err); await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
   });
 
   router.command("/compare", "Compare two wallets ($0.05)", async (ctx) => {
@@ -201,10 +211,12 @@ export async function startXmtpAgent(): Promise<Agent> {
     const text = ctx.message.content as string;
     const addresses = text.match(/0x[a-fA-F0-9]{40}/g);
     if (!addresses || addresses.length < 2) { await ctx.conversation.sendText("Usage: /compare 0x<addressA> 0x<addressB>"); return; }
+    console.log(`[xmtp] /compare ${addresses[0]} vs ${addresses[1]}`);
     try {
       const report = await handleCompare(addresses[0], addresses[1]);
+      console.log(`[xmtp] ✅ /compare done`);
       await ctx.conversation.sendText(compareToText(report));
-    } catch (err) { await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
+    } catch (err) { console.error(`[xmtp] ❌ /compare failed:`, err); await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
   });
 
   // Handle payment confirmation
