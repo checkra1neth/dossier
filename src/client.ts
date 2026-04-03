@@ -13,7 +13,7 @@ import {
   signMessage as owsSignMessage,
   listWallets as owsListWallets,
 } from "@open-wallet-standard/core";
-import { execSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as readline from "node:readline";
 
 const AGENT_ADDRESS = process.env.AGENT_ADDRESS || "0x379cf10f35950dDc581940EDD4dCBD16Dd226518";
@@ -53,45 +53,88 @@ function createOwsSigner(walletName: string): { signer: Signer; address: string 
 }
 
 // Execute x402 payment via OWS CLI (EIP-3009, gasless)
-function executeX402Payment(walletName: string, targetAddress: string): string {
+function executeX402Payment(walletName: string, targetAddress: string): Promise<string> {
   const body = JSON.stringify({ address: targetAddress });
-  const cmd = `ows pay request "${SERVER_URL}/research" --wallet "${walletName}" --method POST --body '${body}' --no-passphrase 2>&1`;
 
   console.log(`\n🔐 Executing x402 payment via OWS...`);
   console.log(`   ows pay request → ${SERVER_URL}/research`);
   console.log(`   Wallet: ${walletName}`);
-  console.log(`   EIP-3009 TransferWithAuthorization (gasless)\n`);
+  console.log(`   EIP-3009 TransferWithAuthorization (gasless)`);
+  console.log(`\n⏳ Signing payment & waiting for research report...`);
 
-  try {
-    const result = execSync(cmd, { encoding: "utf-8", timeout: 0 });
+  return new Promise((resolve, reject) => {
+    const child = spawn("ows", [
+      "pay", "request", `${SERVER_URL}/research`,
+      "--wallet", walletName,
+      "--method", "POST",
+      "--body", body,
+      "--no-passphrase",
+    ], { stdio: ["ignore", "pipe", "pipe"] });
 
-    // Parse ows output — check for payment status
-    if (result.includes("Paid")) {
-      const paidLine = result.split("\n").find(l => l.includes("Paid"));
-      console.log(`✅ ${paidLine}`);
-    }
+    let output = "";
 
-    if (result.includes("insufficient") || result.includes("Insufficient") || result.includes("balance")) {
-      console.log(`❌ Insufficient USDC balance. Top up your wallet and try again.`);
-      return "";
-    }
+    child.stdout.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
 
-    // Extract JSON response (last line or after "Paid" line)
-    const lines = result.trim().split("\n");
-    const jsonLine = lines.find(l => l.startsWith("{") && l.length > 10);
-    if (jsonLine) {
-      console.log(`✅ Research report received!`);
-      return jsonLine;
-    }
+    child.stderr.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
 
-    return result;
-  } catch (err) {
-    const output = (err as { stdout?: string; stderr?: string }).stdout ?? (err as Error).message;
-    if (output.includes("insufficient") || output.includes("Insufficient") || output.includes("balance")) {
-      throw new Error("Insufficient USDC balance on Base. Top up your wallet.");
-    }
-    throw err;
-  }
+    child.on("close", () => {
+      // Split only the ows CLI header lines (before the JSON body)
+      const lines = output.trim().split("\n");
+      const httpStatusLine = lines.find(l => /^HTTP\s+\d{3}/.test(l));
+      const httpStatus = httpStatusLine ? parseInt(httpStatusLine.replace("HTTP ", "")) : 0;
+
+      // Find the JSON response (research report)
+      const jsonLine = lines.find(l => l.startsWith("{") && l.length > 10);
+
+      // Only check for balance errors in ows CLI output BEFORE the JSON body
+      const headerText = lines.slice(0, lines.indexOf(jsonLine ?? "") || lines.length).join("\n");
+      if (headerText.includes("insufficient") || headerText.includes("Insufficient")) {
+        reject(new Error("Insufficient USDC balance on Base. Top up your wallet."));
+        return;
+      }
+
+      if (httpStatus === 402) {
+        if (headerText.includes("reverted") || headerText.includes("revert")) {
+          reject(new Error(
+            `Payment verification failed on-chain (contract reverted).\n` +
+            `   This usually means insufficient USDC balance on Base.\n` +
+            `   Wallet: ${walletName}\n` +
+            `   Required: $0.05 USDC on Base (chain 8453)\n` +
+            `   Top up your wallet and try again.`
+          ));
+        } else {
+          reject(new Error(
+            `Server returned 402 after payment.\n` +
+            `   Check your USDC balance and try again.`
+          ));
+        }
+        return;
+      }
+
+      // Show payment confirmation
+      const paidLine = lines.find(l => l.includes("Paid"));
+      if (paidLine) {
+        console.log(`✅ ${paidLine.trim()}`);
+      }
+
+      if (jsonLine) {
+        console.log(`✅ Research report received!`);
+        resolve(jsonLine);
+        return;
+      }
+
+      if (httpStatus >= 200 && httpStatus < 300) {
+        resolve(output);
+        return;
+      }
+
+      reject(new Error(`Unexpected response: HTTP ${httpStatus || "unknown"}\n${output}`));
+    });
+  });
 }
 
 // Store pending state
@@ -124,8 +167,12 @@ async function main() {
   const dm = await agent.createDmWithAddress(AGENT_ADDRESS as `0x${string}`);
   console.log(`✅ DM created\n`);
 
+  // Ignore messages from before client started
+  const startedAt = Date.now();
+
   // Listen for incoming messages
   agent.on("text", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
     const sender = await ctx.getSenderAddress();
     if (sender?.toLowerCase() === myAddress.toLowerCase()) return;
     console.log(`\n📩 Agent:\n${"-".repeat(50)}`);
@@ -135,6 +182,7 @@ async function main() {
   });
 
   agent.on("wallet-send-calls", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
     const sender = await ctx.getSenderAddress();
     if (sender?.toLowerCase() === myAddress.toLowerCase()) return;
     const calls = ctx.message.content;
@@ -157,8 +205,14 @@ async function main() {
     prompt: "you> ",
   });
 
-  console.log(`🎯 OWS Deep Research Client. Commands:`);
-  console.log(`   /research 0x<address>  — request research ($0.05 USDC)`);
+  console.log(`🎯 OWS Intelligence Wire. Commands:`);
+  console.log(`   /quick 0x<addr>        — portfolio snapshot ($0.01)`);
+  console.log(`   /research 0x<addr>     — deep research ($0.05)`);
+  console.log(`   /pnl 0x<addr>          — profit & loss ($0.02)`);
+  console.log(`   /defi 0x<addr>         — DeFi positions ($0.02)`);
+  console.log(`   /history 0x<addr>      — tx history ($0.02)`);
+  console.log(`   /nft 0x<addr>          — NFT portfolio ($0.02)`);
+  console.log(`   /compare 0x<a> 0x<b>   — compare wallets ($0.05)`);
   console.log(`   pay                    — approve payment (x402 + OWS, gasless)`);
   console.log(`   quit                   — exit\n`);
 
@@ -182,7 +236,7 @@ async function main() {
       }
 
       try {
-        const result = executeX402Payment(CLIENT_WALLET, pendingAddress);
+        const result = await executeX402Payment(CLIENT_WALLET, pendingAddress);
 
         if (!result) {
           rl.prompt();
@@ -212,12 +266,14 @@ async function main() {
           console.log(`\n📊 Raw result:\n${result}\n`);
         }
 
-        await dm.sendText(`✅ Paid via x402. Research for ${pendingAddress} completed.`);
         pendingAddress = null;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.log(`\n❌ Payment failed: ${msg}`);
-        console.log(`💡 Make sure you have USDC on Base in wallet ${myAddress}\n`);
+        console.log(`\n❌ Payment failed:\n   ${msg.split("\n").join("\n   ")}`);
+        console.log(`\n💡 Wallet: ${myAddress}`);
+        console.log(`   Send at least $0.10 USDC to this address on Base (chain 8453)`);
+        console.log(`   Then try "pay" again.\n`);
+        // Don't clear pendingAddress — let user retry after funding
       }
       rl.prompt();
       return;
