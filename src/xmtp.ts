@@ -28,6 +28,8 @@ import { parseSwapCommand, handleSwap, swapOfferToText, executeSwap } from "./co
 import { parseBridgeCommand, handleBridge, bridgeOfferToText, executeSwap as executeBridge } from "./commands/bridge.ts";
 import { parseSendCommand, handleSend, sendToText, executeSend } from "./commands/send.ts";
 import { getWalletInfo } from "./services/ows.ts";
+import { handleWatch, handleUnwatch } from "./commands/watch.ts";
+import { handleSubscribe, handleUnsubscribe } from "./commands/subscribe.ts";
 
 const CHAIN = base;
 const USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
@@ -237,9 +239,10 @@ export async function startXmtpAgent(): Promise<Agent> {
 
   router.command("/balance", "Check your wallet balance (free)", async (ctx) => {
     if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
-    console.log(`[xmtp] /balance`);
+    const senderAddress = await ctx.getSenderAddress();
+    console.log(`[xmtp] /balance for ${senderAddress}`);
     try {
-      const report = await handleBalance(owsWalletName);
+      const report = await handleBalance(senderAddress ?? owsWalletName);
       console.log(`[xmtp] ✅ /balance done — $${report.totalUsd.toLocaleString()}`);
       await ctx.conversation.sendText(balanceToText(report));
     } catch (err) {
@@ -337,6 +340,56 @@ export async function startXmtpAgent(): Promise<Agent> {
     }
   });
 
+  // -----------------------------------------------------------------------
+  // Monitoring commands
+  // -----------------------------------------------------------------------
+
+  router.command("/watch", "Watch a wallet for activity ($0.10)", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
+    const text = ctx.message.content as string;
+    const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
+    if (!address) { await ctx.conversation.sendText("Usage: /watch 0x<address>"); return; }
+    console.log(`[xmtp] /watch ${address}`);
+    try {
+      const result = await handleWatch(address, ctx.conversation.id);
+      console.log(`[xmtp] /watch done for ${address}`);
+      await ctx.conversation.sendText(result);
+    } catch (err) {
+      console.error(`[xmtp] /watch failed:`, err);
+      await ctx.conversation.sendText(`Error: ${err instanceof Error ? err.message : err}`);
+    }
+  });
+
+  router.command("/unwatch", "Stop watching a wallet (free)", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
+    const text = ctx.message.content as string;
+    const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
+    if (!address) { await ctx.conversation.sendText("Usage: /unwatch 0x<address>"); return; }
+    console.log(`[xmtp] /unwatch ${address}`);
+    try {
+      const result = await handleUnwatch(address);
+      console.log(`[xmtp] /unwatch done for ${address}`);
+      await ctx.conversation.sendText(result);
+    } catch (err) {
+      console.error(`[xmtp] /unwatch failed:`, err);
+      await ctx.conversation.sendText(`Error: ${err instanceof Error ? err.message : err}`);
+    }
+  });
+
+  router.command("/subscribe", "Subscribe to daily digest (free)", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
+    console.log(`[xmtp] /subscribe`);
+    const result = handleSubscribe(ctx.conversation.id);
+    await ctx.conversation.sendText(result);
+  });
+
+  router.command("/unsubscribe", "Unsubscribe from daily digest (free)", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
+    console.log(`[xmtp] /unsubscribe`);
+    const result = handleUnsubscribe(ctx.conversation.id);
+    await ctx.conversation.sendText(result);
+  });
+
   // Handle payment confirmation
   agent.on("transaction-reference", async (ctx) => {
     if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
@@ -423,6 +476,11 @@ export async function startXmtpAgent(): Promise<Agent> {
       `  /swap <amt> <token> to <token> [on <chain>] ($0.01)\n` +
       `  /bridge <amt> <token> from <chain> to <chain> ($0.01)\n` +
       `  /send <amt> <token> to <0xaddr> [on <chain>] ($0.01)\n\n` +
+      `Monitoring:\n` +
+      `  /watch 0x<addr>  — watch wallet activity ($0.10)\n` +
+      `  /unwatch 0x<addr> — stop watching (free)\n` +
+      `  /subscribe — daily digest (free, coming soon)\n` +
+      `  /unsubscribe — stop daily digest (free)\n\n` +
       `Payments via x402 (USDC on Base, gasless).`
     );
   });
@@ -433,4 +491,20 @@ export async function startXmtpAgent(): Promise<Agent> {
   console.log(`[xmtp] Agent online: ${agent.address}`);
 
   return agent;
+}
+
+/**
+ * Send a text message to an XMTP conversation by ID.
+ * Used by the webhook handler to deliver wallet activity alerts.
+ */
+export async function sendToConversation(
+  agent: Agent,
+  conversationId: string,
+  text: string,
+): Promise<void> {
+  const ctx = await agent.getConversationContext(conversationId);
+  if (!ctx) {
+    throw new Error(`Conversation ${conversationId} not found`);
+  }
+  await ctx.conversation.sendText(text);
 }

@@ -10,15 +10,28 @@ export interface BalanceReport {
 }
 
 export async function handleBalance(
-  walletName: string,
+  walletNameOrAddress: string,
 ): Promise<BalanceReport> {
-  const info = getWalletInfo(walletName);
-  const positions = await fetchPositions(info.address, "only_simple");
+  let name: string;
+  let address: string;
+
+  if (walletNameOrAddress.startsWith("0x")) {
+    // Direct address lookup (e.g. from XMTP sender)
+    name = walletNameOrAddress.slice(0, 6) + "..." + walletNameOrAddress.slice(-4);
+    address = walletNameOrAddress;
+  } else {
+    // OWS wallet name lookup
+    const info = getWalletInfo(walletNameOrAddress);
+    name = info.name;
+    address = info.address;
+  }
+
+  const positions = await fetchPositions(address, "only_simple");
   const totalUsd = positions.reduce((s, p) => s + p.valueUsd, 0);
 
   return {
-    wallet: info.name,
-    address: info.address,
+    wallet: name,
+    address,
     positions: positions.slice(0, 10),
     totalUsd,
   };

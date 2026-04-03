@@ -1,5 +1,7 @@
 import "dotenv/config";
 import express from "express";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 import {
   paymentMiddleware,
   paymentMiddlewareFromConfig,
@@ -25,6 +27,7 @@ import { handleSwap } from "./commands/swap.ts";
 import { handleBridge } from "./commands/bridge.ts";
 import { handleSend } from "./commands/send.ts";
 import { getWalletInfo } from "./services/ows.ts";
+import { getWatch } from "./services/webhooks.ts";
 
 // Prevent server crash on unhandled errors
 process.on("unhandledRejection", (err) => {
@@ -37,9 +40,117 @@ process.on("uncaughtException", (err) => {
 const app = express();
 app.use(express.json());
 
+// ---------------------------------------------------------------------------
+// XMTP agent reference — set after agent starts, used by webhook handler
+// ---------------------------------------------------------------------------
+let xmtpAgent: { sendMessage: (conversationId: string, text: string) => Promise<void> } | null = null;
+
+export function setXmtpAgent(agent: { sendMessage: (conversationId: string, text: string) => Promise<void> }): void {
+  xmtpAgent = agent;
+}
+
 // Health endpoint
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "ows-deep-research", uptime: process.uptime() });
+});
+
+// ---------------------------------------------------------------------------
+// Webhook receiver — Zerion tx-subscription notifications
+// ---------------------------------------------------------------------------
+
+interface WebhookTransfer {
+  direction: string;
+  quantity: { float: number };
+  fungible_info?: { symbol: string };
+  value?: number | null;
+}
+
+interface WebhookPayload {
+  data: {
+    id: string;
+    attributes: {
+      address: string;
+      timestamp: string;
+    };
+  };
+  included?: {
+    attributes: {
+      operation_type: string;
+      transfers: WebhookTransfer[];
+      mined_at: string;
+    };
+    relationships?: {
+      chain?: { data: { id: string } };
+    };
+  }[];
+}
+
+function formatWebhookAlert(payload: WebhookPayload): string {
+  const address = payload.data.attributes.address;
+  const short = `${address.slice(0, 6)}...${address.slice(-4)}`;
+
+  const tx = payload.included?.[0];
+  if (!tx) {
+    return `\u{1F514} Activity detected on ${short}`;
+  }
+
+  const opType = tx.attributes.operation_type ?? "unknown";
+  const chain = tx.relationships?.chain?.data?.id ?? "unknown";
+  const timestamp = tx.attributes.mined_at ?? payload.data.attributes.timestamp;
+
+  let transferLines = "";
+  for (const t of tx.attributes.transfers ?? []) {
+    const symbol = t.fungible_info?.symbol ?? "???";
+    const qty = t.quantity.float;
+    const dir = t.direction === "out" ? "\u2192 sent" : "\u2190 received";
+    const valueStr = t.value ? ` ($${t.value.toFixed(2)})` : "";
+    transferLines += `  ${dir} ${qty} ${symbol}${valueStr}\n`;
+  }
+
+  return (
+    `\u{1F514} Wallet activity: ${short}\n` +
+    `\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n` +
+    `Type: ${opType}\n` +
+    `Chain: ${chain}\n` +
+    `Time: ${timestamp}\n` +
+    (transferLines ? `\nTransfers:\n${transferLines}` : "")
+  );
+}
+
+app.post("/webhook", async (req: express.Request, res: express.Response) => {
+  const payload = req.body as WebhookPayload;
+
+  const address = payload?.data?.attributes?.address;
+  if (!address) {
+    console.warn("[webhook] Received payload without address, ignoring");
+    res.sendStatus(200);
+    return;
+  }
+
+  console.log(`[webhook] Notification for ${address}`);
+
+  const watch = getWatch(address);
+  if (!watch) {
+    console.warn(`[webhook] No watch entry for ${address}, ignoring`);
+    res.sendStatus(200);
+    return;
+  }
+
+  const alertText = formatWebhookAlert(payload);
+  console.log(`[webhook] Alert:\n${alertText}`);
+
+  if (xmtpAgent) {
+    try {
+      await xmtpAgent.sendMessage(watch.conversationId, alertText);
+      console.log(`[webhook] Alert sent to conversation ${watch.conversationId}`);
+    } catch (err) {
+      console.error(`[webhook] Failed to send XMTP alert:`, err instanceof Error ? err.message : err);
+    }
+  } else {
+    console.warn("[webhook] XMTP agent not available, alert logged but not delivered");
+  }
+
+  res.sendStatus(200);
 });
 
 // OWS wallet for receiving payments
@@ -304,6 +415,35 @@ bridgeRouter.post("/", async (req: express.Request, res: express.Response) => {
   }
 });
 
+const watchRouter = express.Router();
+
+watchRouter.post("/", async (req: express.Request, res: express.Response) => {
+  const { address, conversationId } = req.body as {
+    address?: string;
+    conversationId?: string;
+  };
+
+  if (!address?.match(/^0x[a-fA-F0-9]{40}$/)) {
+    res.status(400).json({ error: "Required: address (valid 0x Ethereum address)" });
+    return;
+  }
+
+  const convId = conversationId ?? "api";
+
+  console.log(`[x402] Payment verified -- watch request for ${address}`);
+
+  try {
+    const { handleWatch } = await import("./commands/watch.ts");
+    const result = await handleWatch(address, convId);
+    console.log(`[api] /watch done for ${address}`);
+    res.json({ message: result });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[api] /watch failed: ${msg}`);
+    res.status(500).json({ error: msg });
+  }
+});
+
 const sendRouter = express.Router();
 
 sendRouter.post("/", async (req: express.Request, res: express.Response) => {
@@ -476,6 +616,16 @@ try {
       description: "Send tokens to an address",
       mimeType: "application/json",
     },
+    "POST /watch": {
+      accepts: {
+        scheme: "exact" as const,
+        network,
+        payTo,
+        price: "$0.10" as const,
+      },
+      description: "Watch a wallet for on-chain activity",
+      mimeType: "application/json",
+    },
   };
 
   app.use(
@@ -498,6 +648,17 @@ app.use("/compare", compareRouter);
 app.use("/swap", swapRouter);
 app.use("/bridge", bridgeRouter);
 app.use("/send", sendRouter);
+app.use("/watch", watchRouter);
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const frontendDist = join(__dirname, "..", "frontend", "dist");
+
+app.use(express.static(frontendDist));
+
+// SPA fallback — React Router handles client-side routing
+app.get("*", (_req, res) => {
+  res.sendFile(join(frontendDist, "index.html"));
+});
 
 // Start servers
 const port = parseInt(process.env.PORT ?? "4000");
@@ -517,14 +678,24 @@ app.listen(port, () => {
   console.log(`[server]   POST /swap     — $0.01 via x402`);
   console.log(`[server]   POST /bridge   — $0.01 via x402`);
   console.log(`[server]   POST /send     — $0.01 via x402`);
+  console.log(`[server] Monitoring:`);
+  console.log(`[server]   POST /watch    — $0.10 via x402`);
+  console.log(`[server]   POST /webhook  — Zerion callback (internal)`);
   console.log(`[server] GET  /health`);
 });
 
 // Start XMTP agent (dynamic import to avoid crashing if native bindings fail)
 (async () => {
   try {
-    const { startXmtpAgent } = await import("./xmtp.ts");
+    const { startXmtpAgent, sendToConversation } = await import("./xmtp.ts");
     const agent = await startXmtpAgent();
+
+    // Wire up XMTP agent for webhook-triggered alerts
+    setXmtpAgent({
+      sendMessage: (conversationId: string, text: string) =>
+        sendToConversation(agent, conversationId, text),
+    });
+
     console.log(`[server] XMTP DM interface ready — address: ${agent.address}`);
   } catch (err) {
     console.warn("[xmtp] Agent failed to start:", (err as Error).message);
