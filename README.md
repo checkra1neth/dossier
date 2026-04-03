@@ -48,7 +48,9 @@ Built for OWS Hackathon — April 3, 2026 | Track 3: Pay-Per-Call Services
 
 ### 1. Web Dashboard
 
-A React-based UI served at `http://localhost:4000`. Select a command, enter a wallet address, and get visual reports.
+**Live:** [dossier-production-1366.up.railway.app](https://dossier-production-1366.up.railway.app)
+
+Select a command, enter a wallet address, and get visual reports.
 
 The dashboard uses an **API proxy** — your OWS client wallet pays x402 on your behalf through the `/api/*` routes, so you don't need to handle payment headers manually.
 
@@ -243,7 +245,7 @@ CDP_API_KEY_SECRET=...                # Coinbase CDP API key secret (optional)
 
 # ── Server ──
 PORT=4000
-WEBHOOK_URL=https://your-domain.com/webhook   # Public URL for Zerion webhook callbacks
+WEBHOOK_URL=https://dossier-production-1366.up.railway.app/webhook   # Public URL for Zerion webhook callbacks
 ```
 
 | Variable | Required | Description |

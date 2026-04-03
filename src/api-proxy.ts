@@ -23,7 +23,7 @@ import { research } from "./pipeline.ts";
 import { getWalletInfo } from "./services/ows.ts";
 
 const router = express.Router();
-const SERVER_URL = process.env.SERVER_URL || "http://localhost:4000";
+const SERVER_URL = process.env.SERVER_URL || `http://localhost:${process.env.PORT || "4000"}`;
 let activeWallet = process.env.OWS_CLIENT_WALLET || "client-researcher";
 const owsServerWallet = process.env.OWS_WALLET_NAME || "research-agent";
 
