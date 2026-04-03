@@ -10,14 +10,12 @@ import { PORTS } from "@wire/shared/config";
 import { sseHandler, broadcastSSE } from "@wire/shared/sse";
 import type { Signal, TradeResult } from "@wire/shared/types";
 import { executeMyriadTrade } from "./myriad.ts";
-import { getDFlowQuote } from "./dflow.ts";
 import { executeMoonPaySwap } from "./moonpay.ts";
 import { executeRipplePayment } from "./ripple.ts";
 
 async function executeAllPlatforms(signal: Signal): Promise<TradeResult[]> {
   const results = await Promise.allSettled([
     executeMyriadTrade(signal),
-    getDFlowQuote(signal),
     executeMoonPaySwap(signal),
     executeRipplePayment(signal),
   ]);
