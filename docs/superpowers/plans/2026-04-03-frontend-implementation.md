@@ -4,18 +4,31 @@
 
 **Goal:** Build landing page + interactive dashboard for OWS Intelligence Wire v2, serving all 7 analytics commands.
 
-**Architecture:** Vite + vanilla TypeScript frontend in `frontend/` directory. Two HTML entry points (landing + dashboard). Express serves the built static files. Wallet connection via viem, x402 payments via `@x402/fetch`.
+**Architecture:** Vite + React + TypeScript frontend in `frontend/` directory. React Router for landing (`/`) and dashboard (`/app`). GSAP + ScrollTrigger for all animations (scroll reveals, staggered entrances, section transitions). Express serves the built static files. Design system: warm sand/cream palette (OWS Hackathon style), Newsreader + Instrument Sans typography.
 
-**Tech Stack:** Vite 6, TypeScript, viem, @x402/fetch, Google Fonts (Newsreader + Instrument Sans)
+**Tech Stack:** Vite 6, React 19, TypeScript, React Router, GSAP + @gsap/react + ScrollTrigger, Google Fonts (Newsreader + Instrument Sans)
+
+**Animation guidelines (GSAP skills):**
+- Use `useGSAP()` hook from `@gsap/react` with `scope` ref — never raw `useEffect` for GSAP
+- Register plugins once: `gsap.registerPlugin(useGSAP, ScrollTrigger)`
+- Use `ScrollTrigger.batch()` for staggered scroll reveals
+- Use transform aliases (`x`, `y`, `scale`, `rotation`) — never animate layout properties
+- Use `autoAlpha` instead of `opacity` for fade in/out
+- Use `gsap.matchMedia()` for `prefers-reduced-motion` — set `duration: 0` when reduced motion preferred
+- Cleanup is automatic with `useGSAP()` — no manual `ctx.revert()` needed
 
 ---
 
-### Task 1: Scaffold Vite project
+### Task 1: Scaffold React + Vite project
 
 **Files:**
 - Create: `frontend/package.json`
 - Create: `frontend/vite.config.ts`
 - Create: `frontend/tsconfig.json`
+- Create: `frontend/tsconfig.node.json`
+- Create: `frontend/index.html`
+- Create: `frontend/src/main.tsx`
+- Create: `frontend/src/App.tsx`
 
 - [ ] **Step 1: Create `frontend/package.json`**
 
@@ -26,13 +39,20 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc -b && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "viem": "^2.47.6"
+    "gsap": "^3.12.0",
+    "@gsap/react": "^2.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.0.0"
   },
   "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.4.0",
     "typescript": "^5.7.0",
     "vite": "^6.0.0"
   }
@@ -43,19 +63,10 @@
 
 ```typescript
 import { defineConfig } from "vite";
-import { resolve } from "path";
+import react from "@vitejs/plugin-react";
 
 export default defineConfig({
-  root: ".",
-  build: {
-    outDir: "dist",
-    rollupOptions: {
-      input: {
-        main: resolve(__dirname, "index.html"),
-        app: resolve(__dirname, "app.html"),
-      },
-    },
-  },
+  plugins: [react()],
   server: {
     port: 3000,
     proxy: {
@@ -78,82 +89,134 @@ export default defineConfig({
 {
   "compilerOptions": {
     "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "jsx": "react-jsx",
     "strict": true,
     "noEmit": true,
     "isolatedModules": true,
     "esModuleInterop": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src"]
 }
 ```
 
-- [ ] **Step 4: Install dependencies**
+- [ ] **Step 4: Create `frontend/tsconfig.node.json`**
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "strict": true
+  },
+  "include": ["vite.config.ts"]
+}
+```
+
+- [ ] **Step 5: Create `frontend/index.html`**
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OWS Intelligence Wire</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;0,6..72,700;0,6..72,800;1,6..72,400&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>
+```
+
+- [ ] **Step 6: Create `frontend/src/main.tsx`**
+
+```tsx
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
+import { App } from "./App";
+import gsap from "gsap";
+import { useGSAP } from "@gsap/react";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+import "./styles/base.css";
+
+gsap.registerPlugin(useGSAP, ScrollTrigger);
+
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </StrictMode>,
+);
+```
+
+- [ ] **Step 7: Create `frontend/src/App.tsx`**
+
+```tsx
+import { Routes, Route } from "react-router-dom";
+import { Landing } from "./pages/Landing";
+import { Dashboard } from "./pages/Dashboard";
+
+export function App(): JSX.Element {
+  return (
+    <Routes>
+      <Route path="/" element={<Landing />} />
+      <Route path="/app" element={<Dashboard />} />
+    </Routes>
+  );
+}
+```
+
+- [ ] **Step 8: Install dependencies**
 
 Run: `cd frontend && npm install`
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add frontend/package.json frontend/vite.config.ts frontend/tsconfig.json frontend/package-lock.json
-git commit -m "chore: scaffold Vite frontend project"
+git add frontend/
+git commit -m "chore: scaffold React + Vite + GSAP frontend"
 ```
 
 ---
 
-### Task 2: Base CSS — variables, reset, typography
+### Task 2: Base CSS tokens
 
 **Files:**
-- Create: `frontend/styles/base.css`
+- Create: `frontend/src/styles/base.css`
 
-- [ ] **Step 1: Create `frontend/styles/base.css`**
+- [ ] **Step 1: Create `frontend/src/styles/base.css`**
 
 ```css
-/* ── Reset ── */
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 html { font-size: 16px; -webkit-font-smoothing: antialiased; scroll-behavior: smooth; }
 
-/* ── Tokens ── */
 :root {
-  /* Palette — warm sand/cream (OWS Hackathon) */
   --sand-0: oklch(96.5% 0.012 75);
   --sand-1: oklch(94% 0.015 72);
   --sand-2: oklch(90% 0.02 70);
   --sand-3: oklch(85% 0.02 68);
-
   --ink: oklch(15% 0.01 65);
   --ink-2: oklch(38% 0.012 65);
   --ink-3: oklch(55% 0.01 68);
   --ink-muted: oklch(68% 0.008 70);
-
-  /* Accent — earthy green */
   --accent: oklch(45% 0.1 160);
   --accent-light: oklch(92% 0.03 160);
-
-  /* Semantic */
   --danger: oklch(55% 0.15 25);
   --warning: oklch(60% 0.14 75);
-
-  /* Spacing — 4pt base */
-  --space-xs: 4px;
-  --space-sm: 8px;
-  --space-md: 16px;
-  --space-lg: 24px;
-  --space-xl: 32px;
-  --space-2xl: 48px;
-  --space-3xl: 64px;
-  --space-4xl: 96px;
-  --space-5xl: 128px;
-
-  /* Typography */
   --font-display: 'Newsreader', Georgia, serif;
   --font-body: 'Instrument Sans', system-ui, sans-serif;
   --font-mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-
-  /* Motion */
-  --ease: cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 body {
@@ -163,197 +226,331 @@ body {
   line-height: 1.6;
 }
 
-/* ── Shared components ── */
-.pill {
-  background: var(--ink);
-  color: var(--sand-0);
-  padding: 8px 20px;
-  border-radius: 100px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  text-decoration: none;
-  transition: opacity 200ms;
-  border: none;
-  cursor: pointer;
-  font-family: var(--font-body);
-}
-.pill:hover { opacity: 0.85; }
-
-.section-title {
-  font-size: 0.68rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--ink-muted);
-  margin-bottom: 14px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--sand-2);
-}
-
-.mono { font-family: var(--font-mono); font-size: 0.76rem; color: var(--ink-2); }
-
-/* ── Scroll reveal ── */
-.reveal {
-  opacity: 0;
-  transform: translateY(12px);
-  transition: opacity 500ms var(--ease), transform 500ms var(--ease);
-}
-.reveal.visible {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .reveal { opacity: 1; transform: none; transition: none; }
-}
+a { color: inherit; }
 ```
 
 - [ ] **Step 2: Commit**
 
 ```bash
-git add frontend/styles/base.css
-git commit -m "feat(frontend): add base CSS tokens and reset"
+git add frontend/src/styles/base.css
+git commit -m "feat(frontend): add base CSS tokens"
 ```
 
 ---
 
-### Task 3: Landing page — HTML + CSS
+### Task 3: Landing page — components + GSAP animations
 
 **Files:**
-- Create: `frontend/index.html`
-- Create: `frontend/styles/landing.css`
-- Create: `frontend/src/main.ts`
+- Create: `frontend/src/pages/Landing.tsx`
+- Create: `frontend/src/styles/landing.css`
+- Create: `frontend/src/components/Nav.tsx`
+- Create: `frontend/src/components/Hero.tsx`
+- Create: `frontend/src/components/ReportPreview.tsx`
+- Create: `frontend/src/components/CommandsGrid.tsx`
+- Create: `frontend/src/components/Pipeline.tsx`
+- Create: `frontend/src/components/HowItWorks.tsx`
+- Create: `frontend/src/components/PricingTable.tsx`
+- Create: `frontend/src/components/Footer.tsx`
 
-- [ ] **Step 1: Create `frontend/index.html`**
+- [ ] **Step 1: Create `frontend/src/components/Nav.tsx`**
 
-Full landing page HTML from the approved v3 mockup. Structure:
-- `<nav>` — logo, links, pill CTA
-- `<section class="hero">` — asymmetric 2-col (text + report card)
-- `<div class="partners">` — partner logos strip
-- `<section class="commands-section">` — 7-command grid
-- `<section class="pipeline-section">` — 5-step flow
-- `<section class="how-section">` — 3 editorial rows
-- `<section class="pricing-section">` — pricing table
-- `<footer>`
+Shared nav component. Takes `cta` prop ("Launch app" for landing, hidden on dashboard since dashboard has its own topbar).
 
-Copy the exact HTML from `.superpowers/brainstorm/47359-1775242821/content/landing-v3.html`, but:
-- Replace inline `<style>` with `<link rel="stylesheet" href="/styles/base.css">` and `<link rel="stylesheet" href="/styles/landing.css">`
-- Replace inline `<script>` with `<script type="module" src="/src/main.ts"></script>`
-- Add Google Fonts `<link>` in `<head>`
+```tsx
+import { Link } from "react-router-dom";
 
-- [ ] **Step 2: Create `frontend/styles/landing.css`**
+interface NavProps {
+  cta?: { label: string; to: string };
+}
 
-Extract all landing-specific CSS from the v3 mockup into this file. Keep base tokens in `base.css`. This includes: nav, hero, report-card, partners, commands-grid, pipeline-flow, how-section, pricing-table, footer, animations, responsive breakpoints.
-
-- [ ] **Step 3: Create `frontend/src/main.ts`**
-
-```typescript
-// Scroll reveal
-const revealObserver = new IntersectionObserver(
-  (entries) => {
-    for (const entry of entries) {
-      if (entry.isIntersecting) {
-        entry.target.classList.add("visible");
-        revealObserver.unobserve(entry.target);
-      }
-    }
-  },
-  { threshold: 0.12 },
-);
-
-document.querySelectorAll(".reveal").forEach((el) => revealObserver.observe(el));
-
-// Stagger pipeline steps
-const flowObserver = new IntersectionObserver(
-  (entries) => {
-    for (const entry of entries) {
-      if (entry.isIntersecting) {
-        const steps = entry.target.querySelectorAll<HTMLElement>(".flow-step");
-        steps.forEach((step, i) => {
-          setTimeout(() => {
-            step.style.opacity = "1";
-            step.style.transform = "translateY(0)";
-            step.style.transition =
-              "opacity 400ms cubic-bezier(0.25,1,0.5,1), transform 400ms cubic-bezier(0.25,1,0.5,1)";
-          }, i * 70);
-        });
-        flowObserver.unobserve(entry.target);
-      }
-    }
-  },
-  { threshold: 0.1 },
-);
-
-const pipelineFlow = document.querySelector(".pipeline-flow");
-if (pipelineFlow) flowObserver.observe(pipelineFlow);
+export function Nav({ cta }: NavProps): JSX.Element {
+  return (
+    <nav className="nav">
+      <Link to="/" className="nav-logo">Intelligence Wire</Link>
+      <div className="nav-r">
+        <a href="#commands">Commands</a>
+        <a href="#pipeline">Pipeline</a>
+        <a href="#pricing">Pricing</a>
+        {cta && <Link to={cta.to} className="pill">{cta.label}</Link>}
+      </div>
+    </nav>
+  );
+}
 ```
 
-- [ ] **Step 4: Verify dev server**
+- [ ] **Step 2: Create `frontend/src/components/Hero.tsx`**
+
+Asymmetric 2-column hero with GSAP staggered entrance using `useGSAP()`:
+
+```tsx
+import { useRef } from "react";
+import { Link } from "react-router-dom";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
+import { ReportPreview } from "./ReportPreview";
+
+export function Hero(): JSX.Element {
+  const containerRef = useRef<HTMLElement>(null);
+
+  useGSAP(() => {
+    const mm = gsap.matchMedia();
+    mm.add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.from(".hero-text > *", {
+        y: 24,
+        autoAlpha: 0,
+        duration: 0.7,
+        stagger: 0.1,
+        ease: "power3.out",
+      });
+      gsap.from(".report-card", {
+        y: 30,
+        autoAlpha: 0,
+        duration: 0.8,
+        delay: 0.3,
+        ease: "power3.out",
+      });
+    });
+  }, { scope: containerRef });
+
+  return (
+    <section className="hero" ref={containerRef}>
+      <div className="hero-text">
+        <h1>On-chain intelligence, <em>wired to you.</em></h1>
+        <p className="hero-sub">
+          Seven analytics commands. Portfolio, PnL, DeFi positions, NFTs,
+          transaction history, wallet comparison. Pay per query — no accounts, no subscriptions.
+        </p>
+        <div className="hero-actions">
+          <Link to="/app" className="pill" style={{ padding: "12px 28px", fontSize: "0.9rem" }}>
+            Launch dashboard
+          </Link>
+          <a href="#commands" className="text-link">View commands →</a>
+        </div>
+        <div className="hero-meta">
+          <div><strong>7 commands</strong>from $0.01/query</div>
+          <div><strong>&lt;10s</strong>full pipeline</div>
+          <div><strong>x402</strong>USDC on Base</div>
+        </div>
+      </div>
+      <ReportPreview />
+    </section>
+  );
+}
+```
+
+- [ ] **Step 3: Create `frontend/src/components/ReportPreview.tsx`**
+
+The hero's report card preview (static mock data):
+
+```tsx
+export function ReportPreview(): JSX.Element {
+  return (
+    <div className="report-card">
+      <div className="report-header">
+        <span>Deep Research Report</span>
+        <div className="report-live" />
+      </div>
+      <div className="report-body">
+        <div className="report-addr">0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045</div>
+        <div className="r-grid">
+          <div className="r-stat"><div className="l">Portfolio</div><div className="v">$2.41M</div></div>
+          <div className="r-stat"><div className="l">Risk</div><div className="v green">Low</div></div>
+          <div className="r-stat"><div className="l">24h change</div><div className="v up">+2.4%</div></div>
+          <div className="r-stat"><div className="l">ROI</div><div className="v up">+184%</div></div>
+        </div>
+        <div className="alloc-bar">
+          <div style={{ flex: 42, background: "oklch(35% 0.08 250)" }}>ETH</div>
+          <div style={{ flex: 28, background: "oklch(50% 0.1 160)" }}>USDC</div>
+          <div style={{ flex: 12, background: "oklch(55% 0.12 310)" }}>AAVE</div>
+          <div style={{ flex: 18, background: "oklch(65% 0.06 70)" }} />
+        </div>
+        <div className="defi-mini">
+          <div className="l">DeFi positions</div>
+          <div className="defi-row"><span><span className="proto">Aave V3</span> · deposited</span><span>$289K</span></div>
+          <div className="defi-row"><span><span className="proto">Compound</span> · staked</span><span>$192K</span></div>
+          <div className="defi-row"><span><span className="proto">Lido</span> · staked</span><span>$84K</span></div>
+        </div>
+        <div className="report-verdict">
+          "Sophisticated DeFi native. +184% ROI, diversified blue-chip strategy. Worth tracking."
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 4: Create `frontend/src/components/CommandsGrid.tsx`**
+
+7-command grid with `ScrollTrigger.batch()` stagger:
+
+```tsx
+import { useRef } from "react";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+const COMMANDS = [
+  { name: "/quick", desc: "Portfolio snapshot — total value, 24h change, top 3 holdings, active chains.", price: "$0.01" },
+  { name: "/research", desc: "Full deep research — LLM analysis, risk scoring, wallet profiling, DeFi + PnL data.", price: "$0.05" },
+  { name: "/pnl", desc: "Profit & loss — realized gains, unrealized gains, fees paid, net ROI.", price: "$0.02" },
+  { name: "/defi", desc: "DeFi positions — deposits, stakes, locked tokens, rewards. Grouped by protocol.", price: "$0.02" },
+  { name: "/history", desc: "Transaction history — last 20 txns, activity pattern, frequency analysis.", price: "$0.02" },
+  { name: "/nft", desc: "NFT portfolio — top collections by floor price, counts, estimated total value.", price: "$0.02" },
+  { name: "/compare", desc: "Head-to-head comparison of two wallets — value, ROI, chains, LLM verdict.", price: "$0.05" },
+];
+
+export function CommandsGrid(): JSX.Element {
+  const ref = useRef<HTMLElement>(null);
+
+  useGSAP(() => {
+    const mm = gsap.matchMedia();
+    mm.add("(prefers-reduced-motion: no-preference)", () => {
+      ScrollTrigger.batch(".cmd-cell", {
+        onEnter: (elements) => {
+          gsap.from(elements, { y: 20, autoAlpha: 0, stagger: 0.06, duration: 0.5, ease: "power3.out" });
+        },
+        start: "top 85%",
+      });
+    });
+  }, { scope: ref });
+
+  return (
+    <section className="commands-section" id="commands" ref={ref}>
+      <div className="commands-header">
+        <h2>Seven ways to read any wallet.</h2>
+        <p>Each command hits the Zerion API, runs analysis, and returns structured data. Pick what you need — from a $0.01 snapshot to a $0.05 deep research report.</p>
+      </div>
+      <div className="cmd-grid">
+        {COMMANDS.map((cmd) => (
+          <div key={cmd.name} className="cmd-cell">
+            <div className="cmd-name">{cmd.name}</div>
+            <div className="cmd-desc">{cmd.desc}</div>
+            <div className="cmd-price">{cmd.price}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+```
+
+- [ ] **Step 5: Create `frontend/src/components/Pipeline.tsx`**
+
+5-step flow with staggered reveal:
+
+```tsx
+import { useRef } from "react";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+const STEPS = [
+  { num: "I", title: "Payment", desc: "x402 verifies USDC on Base. No API keys needed.", tag: "x402" },
+  { num: "II", title: "Portfolio", desc: "Value, chains, 24h changes. Dust filtered.", tag: "zerion/portfolio" },
+  { num: "III", title: "Positions", desc: "Spot + DeFi + NFTs. PnL and transactions.", tag: "zerion/positions" },
+  { num: "IV", title: "Analysis", desc: "LLM builds wallet profile, risk score, patterns.", tag: "openrouter" },
+  { num: "V", title: "Report", desc: "Structured JSON + markdown. Ready to render.", tag: "json · md" },
+];
+
+export function Pipeline(): JSX.Element {
+  const ref = useRef<HTMLElement>(null);
+
+  useGSAP(() => {
+    const mm = gsap.matchMedia();
+    mm.add("(prefers-reduced-motion: no-preference)", () => {
+      ScrollTrigger.batch(".flow-step", {
+        onEnter: (elements) => {
+          gsap.from(elements, { y: 16, autoAlpha: 0, stagger: 0.07, duration: 0.45, ease: "power3.out" });
+        },
+        start: "top 85%",
+      });
+    });
+  }, { scope: ref });
+
+  return (
+    <section className="pipeline-section" id="pipeline" ref={ref}>
+      <div className="pipeline-header">
+        <h2>Five data sources, one pipeline.</h2>
+        <p>Portfolio, positions, DeFi, PnL, and transactions fetched in parallel. LLM synthesizes everything into a verdict.</p>
+      </div>
+      <div className="pipeline-flow">
+        {STEPS.map((s) => (
+          <div key={s.num} className="flow-step">
+            <div className="num">{s.num}</div>
+            <h3>{s.title}</h3>
+            <p>{s.desc}</p>
+            <div className="tag">{s.tag}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+```
+
+- [ ] **Step 6: Create `HowItWorks.tsx`, `PricingTable.tsx`, `Footer.tsx`**
+
+Same pattern — data-driven components with `ScrollTrigger.batch()` reveals. HowItWorks: 3 editorial rows. PricingTable: 7-row table. Footer: logo + links. Use the exact HTML structure and content from the approved landing-v3 mockup.
+
+- [ ] **Step 7: Create `frontend/src/pages/Landing.tsx`**
+
+Compose all sections:
+
+```tsx
+import { Nav } from "../components/Nav";
+import { Hero } from "../components/Hero";
+import { CommandsGrid } from "../components/CommandsGrid";
+import { Pipeline } from "../components/Pipeline";
+import { HowItWorks } from "../components/HowItWorks";
+import { PricingTable } from "../components/PricingTable";
+import { Footer } from "../components/Footer";
+import "../styles/landing.css";
+
+const PARTNERS = ["OWS", "x402", "XMTP", "Zerion", "OpenRouter", "Base"];
+
+export function Landing(): JSX.Element {
+  return (
+    <>
+      <Nav cta={{ label: "Launch app", to: "/app" }} />
+      <div className="wrap">
+        <Hero />
+        <div className="partners">
+          <span className="partners-label">Built with</span>
+          <div className="partners-logos">
+            {PARTNERS.map((p) => <span key={p}>{p}</span>)}
+          </div>
+        </div>
+        <CommandsGrid />
+        <Pipeline />
+        <HowItWorks />
+        <PricingTable />
+        <Footer />
+      </div>
+    </>
+  );
+}
+```
+
+- [ ] **Step 8: Create `frontend/src/styles/landing.css`**
+
+Extract all landing-specific CSS from the approved landing-v3 mockup (nav, hero, report-card, partners, commands-grid, pipeline-flow, how-section, pricing-table, footer, responsive breakpoints). Remove animation CSS — all animation is handled by GSAP now.
+
+- [ ] **Step 9: Verify dev server**
 
 Run: `cd frontend && npm run dev`
 Open: `http://localhost:3000`
-Expected: Landing page renders with all sections, animations work on scroll.
+Expected: Landing page renders with all sections. GSAP scroll-triggered stagger animations work. `prefers-reduced-motion` respected.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add frontend/index.html frontend/styles/landing.css frontend/src/main.ts
-git commit -m "feat(frontend): add landing page with all sections"
+git add frontend/src/
+git commit -m "feat(frontend): add landing page with GSAP scroll animations"
 ```
 
 ---
 
-### Task 4: Dashboard — HTML + CSS
-
-**Files:**
-- Create: `frontend/app.html`
-- Create: `frontend/styles/dashboard.css`
-
-- [ ] **Step 1: Create `frontend/app.html`**
-
-Full dashboard HTML from the approved dashboard-v2 mockup. Structure:
-- `<div class="topbar">` — logo, nav, balance, address
-- `<div class="main">` with:
-  - `.search-area` — command tabs, input, button
-  - `#report` container (initially hidden, populated by JS)
-  - `#history` — query history table
-
-Links:
-```html
-<link rel="stylesheet" href="/styles/base.css">
-<link rel="stylesheet" href="/styles/dashboard.css">
-<script type="module" src="/src/app.ts"></script>
-```
-
-The `#report` div starts empty — `render.ts` fills it after a query. Include a placeholder state:
-```html
-<div id="report">
-  <div class="empty-state">
-    <p>Enter a wallet address and pick a command to start.</p>
-  </div>
-</div>
-```
-
-- [ ] **Step 2: Create `frontend/styles/dashboard.css`**
-
-Extract all dashboard-specific CSS from the dashboard-v2 mockup. Includes: topbar, search area, command tabs, stats row, report body, analysis, sidebar, allocation list, defi list, pnl grid, transaction table, badges, history table, responsive breakpoints.
-
-- [ ] **Step 3: Verify**
-
-Run: `cd frontend && npm run dev`
-Open: `http://localhost:3000/app.html`
-Expected: Dashboard renders with search area, empty state, and static layout.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add frontend/app.html frontend/styles/dashboard.css
-git commit -m "feat(frontend): add dashboard page with layout and styles"
-```
-
----
-
-### Task 5: API client
+### Task 4: API client
 
 **Files:**
 - Create: `frontend/src/api.ts`
@@ -363,18 +560,18 @@ git commit -m "feat(frontend): add dashboard page with layout and styles"
 ```typescript
 export type Command = "quick" | "research" | "pnl" | "defi" | "history" | "nft" | "compare";
 
-export const COMMAND_PRICES: Record<Command, string> = {
-  quick: "$0.01",
-  research: "$0.05",
-  pnl: "$0.02",
-  defi: "$0.02",
-  history: "$0.02",
-  nft: "$0.02",
-  compare: "$0.05",
-};
+export const COMMANDS: { cmd: Command; label: string; price: string }[] = [
+  { cmd: "quick", label: "/quick", price: "$0.01" },
+  { cmd: "research", label: "/research", price: "$0.05" },
+  { cmd: "pnl", label: "/pnl", price: "$0.02" },
+  { cmd: "defi", label: "/defi", price: "$0.02" },
+  { cmd: "history", label: "/history", price: "$0.02" },
+  { cmd: "nft", label: "/nft", price: "$0.02" },
+  { cmd: "compare", label: "/compare", price: "$0.05" },
+];
 
-export interface ApiError {
-  error: string;
+export function getPrice(cmd: Command): string {
+  return COMMANDS.find((c) => c.cmd === cmd)?.price ?? "$0.05";
 }
 
 export async function query<T>(command: Command, body: Record<string, string>): Promise<T> {
@@ -384,12 +581,12 @@ export async function query<T>(command: Command, body: Record<string, string>): 
     body: JSON.stringify(body),
   });
 
+  if (res.status === 402) {
+    throw new Error(`Payment required: ${getPrice(command)} USDC on Base`);
+  }
+
   if (!res.ok) {
-    // x402 payment required — show price info
-    if (res.status === 402) {
-      throw new Error(`Payment required: ${COMMAND_PRICES[command]} USDC on Base`);
-    }
-    const err = (await res.json().catch(() => ({ error: res.statusText }))) as ApiError;
+    const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || `Request failed: ${res.status}`);
   }
 
@@ -397,636 +594,359 @@ export async function query<T>(command: Command, body: Record<string, string>): 
 }
 ```
 
-Note: x402 payment integration with `@x402/fetch` is deferred — for the hackathon demo, the API either works without payment middleware or returns 402. The frontend shows the error. Full wallet-based payment flow can be added post-hackathon.
-
 - [ ] **Step 2: Commit**
 
 ```bash
 git add frontend/src/api.ts
-git commit -m "feat(frontend): add API client for all commands"
+git commit -m "feat(frontend): add API client"
 ```
 
 ---
 
-### Task 6: Report rendering
+### Task 5: Report rendering components
 
 **Files:**
-- Create: `frontend/src/render.ts`
+- Create: `frontend/src/components/reports/ResearchReport.tsx`
+- Create: `frontend/src/components/reports/QuickReport.tsx`
+- Create: `frontend/src/components/reports/PnlReport.tsx`
+- Create: `frontend/src/components/reports/DefiReport.tsx`
+- Create: `frontend/src/components/reports/HistoryReport.tsx`
+- Create: `frontend/src/components/reports/NftReport.tsx`
+- Create: `frontend/src/components/reports/CompareReport.tsx`
+- Create: `frontend/src/components/reports/index.tsx`
 
-- [ ] **Step 1: Create `frontend/src/render.ts`**
+- [ ] **Step 1: Create report components**
 
-Functions that take API response JSON and return HTML strings for each report type:
+Each report component takes the API response as props and renders the report view. Follow the exact layout from the approved dashboard-v2 mockup. Each component uses `useGSAP()` for entrance animation (stats fade in, sections stagger).
 
-```typescript
-import type { Command } from "./api.ts";
+Example — `ResearchReport.tsx`:
 
-function usd(v: number): string {
-  return v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+```tsx
+import { useRef } from "react";
+import { useGSAP } from "@gsap/react";
+import gsap from "gsap";
 
-function shortAddr(addr: string): string {
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-}
-
-function escapeHtml(text: string): string {
-  const el = document.createElement("span");
-  el.textContent = text;
-  return el.innerHTML;
-}
-
-// ── Research report (full) ──
-
-interface ResearchData {
-  address: string;
-  timestamp: number;
+interface Props {
   data: {
-    totalValueUsd: number;
-    chains: string[];
-    topPositions: { asset: string; valueUsd: number; percentage: number }[];
-    isSmartMoney: boolean;
-    positionCount: number;
-  };
-  analysis: {
-    summary: string;
-    riskLevel: "low" | "medium" | "high";
-    patterns: string[];
-    verdict: string;
+    address: string;
+    timestamp: number;
+    data: {
+      totalValueUsd: number;
+      chains: string[];
+      topPositions: { asset: string; valueUsd: number; percentage: number }[];
+      isSmartMoney: boolean;
+      positionCount: number;
+    };
+    analysis: {
+      summary: string;
+      riskLevel: "low" | "medium" | "high";
+      patterns: string[];
+      verdict: string;
+    };
   };
 }
 
-export function renderResearch(report: ResearchData): string {
+export function ResearchReport({ data: report }: Props): JSX.Element {
+  const ref = useRef<div>(null);
+
+  useGSAP(() => {
+    gsap.from(".stat", { y: 12, autoAlpha: 0, stagger: 0.05, duration: 0.4, ease: "power3.out" });
+    gsap.from(".report-body > *", { y: 16, autoAlpha: 0, stagger: 0.08, duration: 0.5, delay: 0.2, ease: "power3.out" });
+  }, { scope: ref });
+
   const { address, data, analysis } = report;
   const risk = analysis.riskLevel;
-  const riskClass = risk === "low" ? "badge-low" : risk === "high" ? "badge-high" : "badge-med";
-
-  const positions = data.topPositions;
-  const colors = [
-    "oklch(35% 0.08 250)", "oklch(50% 0.1 160)", "oklch(55% 0.12 310)",
-    "oklch(58% 0.1 40)", "oklch(65% 0.06 70)",
-  ];
-
-  const allocItems = positions.slice(0, 5).map((p, i) => `
-    <li class="alloc-item">
-      <span class="alloc-asset"><span class="alloc-dot" style="background:${colors[i] ?? colors[4]}"></span>${escapeHtml(p.asset)}</span>
-      <span class="alloc-value">$${usd(p.valueUsd)}</span>
-      <span class="alloc-pct">${p.percentage}%</span>
-    </li>
-  `).join("");
-
-  const patternTags = analysis.patterns.map((p) =>
-    `<div class="tag-item">${escapeHtml(p)}</div>`
-  ).join("");
-
-  const chainTags = data.chains.map((c) =>
-    `<span class="chain-tag">${escapeHtml(c)}</span>`
-  ).join("");
-
-  const cleanSummary = analysis.summary
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/\*\*/g, "")
-    .replace(/\*/g, "")
-    .split("\n")
-    .filter((l) => l.trim())
-    .map((l) => `<p>${escapeHtml(l.trim())}</p>`)
-    .join("");
-
-  return `
-    <div class="report-top">
-      <div class="report-wallet">
-        <h2>${shortAddr(address)} <span class="addr-full">${escapeHtml(address)}</span></h2>
-        <div class="badges">
-          <span class="badge ${riskClass}">${risk} risk</span>
-          ${data.isSmartMoney ? '<span class="badge badge-smart">Smart money</span>' : ""}
-        </div>
-      </div>
-      <span class="report-timestamp">${new Date(report.timestamp).toLocaleString()}</span>
-    </div>
-
-    <div class="stats-row">
-      <div class="stat"><div class="stat-label">Portfolio</div><div class="stat-value">$${usd(data.totalValueUsd)}</div><div class="stat-sub">across ${data.chains.length} chains</div></div>
-      <div class="stat"><div class="stat-label">Positions</div><div class="stat-value">${data.positionCount}</div><div class="stat-sub">filtered</div></div>
-      <div class="stat"><div class="stat-label">Risk</div><div class="stat-value ${risk === "low" ? "green" : ""}">${risk.charAt(0).toUpperCase() + risk.slice(1)}</div></div>
-      <div class="stat"><div class="stat-label">Top holding</div><div class="stat-value">${positions[0]?.asset ?? "—"}</div><div class="stat-sub">${positions[0]?.percentage ?? 0}%</div></div>
-      <div class="stat"><div class="stat-label">Smart money</div><div class="stat-value">${data.isSmartMoney ? "Yes" : "No"}</div></div>
-    </div>
-
-    <div class="report-body">
-      <div>
-        <div class="section-title">Analysis</div>
-        <div class="analysis-text">${cleanSummary}</div>
-        <div class="verdict-box"><strong>Verdict</strong>${escapeHtml(analysis.verdict)}</div>
-      </div>
-      <div class="sidebar">
-        <div><div class="section-title">Allocation</div><ul class="alloc-list">${allocItems}</ul></div>
-        ${patternTags ? `<div><div class="section-title">Detected patterns</div><div class="tag-list">${patternTags}</div></div>` : ""}
-        ${chainTags ? `<div><div class="section-title">Active chains</div><div class="chain-row">${chainTags}</div></div>` : ""}
-      </div>
-    </div>
-  `;
-}
-
-// ── Quick report ──
-
-interface QuickData {
-  address: string;
-  portfolio: { totalValueUsd: number; chains: string[]; change24hPercent: number; change24hUsd: number };
-  topPositions: { asset: string; valueUsd: number; percentage: number }[];
-}
-
-export function renderQuick(report: QuickData): string {
-  const { address, portfolio, topPositions } = report;
-  const sign = portfolio.change24hPercent >= 0 ? "+" : "";
-  const changeClass = portfolio.change24hPercent >= 0 ? "green" : "";
-
-  const positions = topPositions.map((p) => `
-    <li class="alloc-item">
-      <span class="alloc-asset">${escapeHtml(p.asset)}</span>
-      <span class="alloc-value">$${usd(p.valueUsd)}</span>
-      <span class="alloc-pct">${p.percentage}%</span>
-    </li>
-  `).join("");
-
-  return `
-    <div class="report-top">
-      <div class="report-wallet"><h2>Quick Snapshot <span class="addr-full">${escapeHtml(address)}</span></h2></div>
-    </div>
-    <div class="stats-row" style="grid-template-columns: repeat(3, 1fr);">
-      <div class="stat"><div class="stat-label">Portfolio</div><div class="stat-value">$${usd(portfolio.totalValueUsd)}</div></div>
-      <div class="stat"><div class="stat-label">24h change</div><div class="stat-value ${changeClass}">${sign}${(portfolio.change24hPercent * 100).toFixed(1)}%</div></div>
-      <div class="stat"><div class="stat-label">Chains</div><div class="stat-value">${portfolio.chains.length}</div></div>
-    </div>
-    <div><div class="section-title">Top positions</div><ul class="alloc-list">${positions}</ul></div>
-  `;
-}
-
-// ── PnL report ──
-
-interface PnlData {
-  address: string;
-  pnl: { realizedGain: number; unrealizedGain: number; totalFees: number; netInvested: number };
-  roi: number;
-}
-
-export function renderPnl(report: PnlData): string {
-  const { address, pnl, roi } = report;
-  const roiClass = roi >= 0 ? "up" : "down";
-  const sign = (v: number): string => v >= 0 ? "+" : "";
-
-  return `
-    <div class="report-top">
-      <div class="report-wallet"><h2>Profit & Loss <span class="addr-full">${escapeHtml(address)}</span></h2></div>
-    </div>
-    <div class="stats-row" style="grid-template-columns: repeat(2, 1fr);">
-      <div class="stat"><div class="stat-label">ROI</div><div class="stat-value ${roiClass}">${sign(roi)}${roi.toFixed(1)}%</div></div>
-      <div class="stat"><div class="stat-label">Net invested</div><div class="stat-value">$${usd(Math.abs(pnl.netInvested))}</div></div>
-    </div>
-    <div class="pnl-grid">
-      <div class="pnl-item"><div class="l">Realized gain</div><div class="v ${pnl.realizedGain >= 0 ? "up" : "down"}">${sign(pnl.realizedGain)}$${usd(Math.abs(pnl.realizedGain))}</div></div>
-      <div class="pnl-item"><div class="l">Unrealized gain</div><div class="v ${pnl.unrealizedGain >= 0 ? "up" : "down"}">${sign(pnl.unrealizedGain)}$${usd(Math.abs(pnl.unrealizedGain))}</div></div>
-      <div class="pnl-item"><div class="l">Total fees</div><div class="v down">-$${usd(Math.abs(pnl.totalFees))}</div></div>
-      <div class="pnl-item"><div class="l">Net invested</div><div class="v">$${usd(Math.abs(pnl.netInvested))}</div></div>
-    </div>
-  `;
-}
-
-// ── DeFi report ──
-
-interface DefiData {
-  address: string;
-  positions: { protocol: string; type: string; asset: string; valueUsd: number; chain: string }[];
-  totalDefiUsd: number;
-}
-
-export function renderDefi(report: DefiData): string {
-  const { address, positions, totalDefiUsd } = report;
-
-  if (positions.length === 0) {
-    return `
-      <div class="report-top"><div class="report-wallet"><h2>DeFi Positions <span class="addr-full">${escapeHtml(address)}</span></h2></div></div>
-      <div class="empty-state"><p>No DeFi positions found.</p></div>
-    `;
-  }
-
-  const items = positions.map((p) => `
-    <li class="defi-item">
-      <div><span class="defi-proto">${escapeHtml(p.protocol)}</span><br><span class="defi-type">${escapeHtml(p.type)} · ${escapeHtml(p.asset)}</span></div>
-      <span class="defi-val">$${usd(p.valueUsd)}</span>
-    </li>
-  `).join("");
-
-  return `
-    <div class="report-top">
-      <div class="report-wallet"><h2>DeFi Positions <span class="addr-full">${escapeHtml(address)}</span></h2></div>
-    </div>
-    <div class="stats-row" style="grid-template-columns: repeat(2, 1fr);">
-      <div class="stat"><div class="stat-label">Total DeFi</div><div class="stat-value">$${usd(totalDefiUsd)}</div></div>
-      <div class="stat"><div class="stat-label">Protocols</div><div class="stat-value">${new Set(positions.map((p) => p.protocol)).size}</div></div>
-    </div>
-    <div><div class="section-title">Positions</div><ul class="defi-list">${items}</ul></div>
-  `;
-}
-
-// ── History report ──
-
-interface HistoryData {
-  address: string;
-  transactions: { type: string; timestamp: string; chain: string; transfers: { direction: string; symbol: string; quantity: number; valueUsd: number }[] }[];
-  pattern: { trades: number; receives: number; sends: number; executes: number; other: number };
-  frequency: string;
-}
-
-export function renderHistory(report: HistoryData): string {
-  const { address, transactions, pattern, frequency } = report;
-
-  const typeClass: Record<string, string> = { trade: "txn-trade", receive: "txn-receive", send: "txn-send", execute: "txn-execute" };
-
-  const rows = transactions.slice(0, 10).map((tx) => {
-    const details = tx.transfers.map((t) => `${t.quantity.toFixed(4)} ${t.symbol}`).join(", ") || "contract call";
-    const cls = typeClass[tx.type] ?? "";
-    const time = new Date(tx.timestamp).toLocaleString();
-    return `<tr><td><span class="txn-type ${cls}">${escapeHtml(tx.type)}</span></td><td>${escapeHtml(details)}</td><td>${escapeHtml(tx.chain)}</td><td style="color:var(--ink-3)">${time}</td></tr>`;
-  }).join("");
-
-  const patternParts = Object.entries(pattern).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${k}`).join(", ");
-
-  return `
-    <div class="report-top">
-      <div class="report-wallet"><h2>Transaction History <span class="addr-full">${escapeHtml(address)}</span></h2></div>
-      <span class="report-timestamp">${escapeHtml(frequency)}</span>
-    </div>
-    <div class="stats-row" style="grid-template-columns: repeat(2, 1fr);">
-      <div class="stat"><div class="stat-label">Transactions</div><div class="stat-value">${transactions.length}</div></div>
-      <div class="stat"><div class="stat-label">Pattern</div><div class="stat-value" style="font-size:0.9rem">${escapeHtml(patternParts)}</div></div>
-    </div>
-    <table><thead><tr><th>Type</th><th>Details</th><th>Chain</th><th>Time</th></tr></thead><tbody>${rows}</tbody></table>
-  `;
-}
-
-// ── NFT report ──
-
-interface NftData {
-  address: string;
-  collections: { name: string; count: number; floorPrice: number; chain: string }[];
-  totalEstimatedUsd: number;
-}
-
-export function renderNft(report: NftData): string {
-  const { address, collections, totalEstimatedUsd } = report;
-
-  if (collections.length === 0) {
-    return `
-      <div class="report-top"><div class="report-wallet"><h2>NFT Portfolio <span class="addr-full">${escapeHtml(address)}</span></h2></div></div>
-      <div class="empty-state"><p>No NFT collections found.</p></div>
-    `;
-  }
-
-  const rows = collections.map((c) =>
-    `<tr><td>${escapeHtml(c.name)}</td><td>${c.count}</td><td>$${usd(c.floorPrice)}</td><td>${escapeHtml(c.chain)}</td></tr>`
-  ).join("");
-
-  return `
-    <div class="report-top">
-      <div class="report-wallet"><h2>NFT Portfolio <span class="addr-full">${escapeHtml(address)}</span></h2></div>
-    </div>
-    <div class="stats-row" style="grid-template-columns: repeat(2, 1fr);">
-      <div class="stat"><div class="stat-label">Estimated value</div><div class="stat-value">$${usd(totalEstimatedUsd)}</div></div>
-      <div class="stat"><div class="stat-label">Collections</div><div class="stat-value">${collections.length}</div></div>
-    </div>
-    <table><thead><tr><th>Collection</th><th>Count</th><th>Floor</th><th>Chain</th></tr></thead><tbody>${rows}</tbody></table>
-  `;
-}
-
-// ── Compare report ──
-
-interface CompareData {
-  addressA: string;
-  addressB: string;
-  a: { portfolio: QuickData["portfolio"]; positions: QuickData["topPositions"]; pnl: PnlData["pnl"] };
-  b: { portfolio: QuickData["portfolio"]; positions: QuickData["topPositions"]; pnl: PnlData["pnl"] };
-  verdict: string;
-}
-
-export function renderCompare(report: CompareData): string {
-  const { addressA, addressB, a, b, verdict } = report;
-  const roiA = a.pnl.netInvested !== 0 ? ((a.pnl.realizedGain + a.pnl.unrealizedGain) / Math.abs(a.pnl.netInvested)) * 100 : 0;
-  const roiB = b.pnl.netInvested !== 0 ? ((b.pnl.realizedGain + b.pnl.unrealizedGain) / Math.abs(b.pnl.netInvested)) * 100 : 0;
-
-  return `
-    <div class="report-top">
-      <div class="report-wallet"><h2>Compare <span class="addr-full">${shortAddr(addressA)} vs ${shortAddr(addressB)}</span></h2></div>
-    </div>
-    <table>
-      <thead><tr><th>Metric</th><th>${shortAddr(addressA)}</th><th>${shortAddr(addressB)}</th></tr></thead>
-      <tbody>
-        <tr><td>Portfolio</td><td>$${usd(a.portfolio.totalValueUsd)}</td><td>$${usd(b.portfolio.totalValueUsd)}</td></tr>
-        <tr><td>Chains</td><td>${a.portfolio.chains.length}</td><td>${b.portfolio.chains.length}</td></tr>
-        <tr><td>ROI</td><td class="${roiA >= 0 ? "green" : ""}">${roiA >= 0 ? "+" : ""}${roiA.toFixed(1)}%</td><td class="${roiB >= 0 ? "green" : ""}">${roiB >= 0 ? "+" : ""}${roiB.toFixed(1)}%</td></tr>
-        <tr><td>Top asset</td><td>${a.positions[0]?.asset ?? "—"}</td><td>${b.positions[0]?.asset ?? "—"}</td></tr>
-      </tbody>
-    </table>
-    <div class="verdict-box" style="margin-top: 24px;"><strong>Verdict</strong>${escapeHtml(verdict)}</div>
-  `;
-}
-
-// ── Router ──
-
-const renderers: Record<Command, (data: unknown) => string> = {
-  research: (d) => renderResearch(d as ResearchData),
-  quick: (d) => renderQuick(d as QuickData),
-  pnl: (d) => renderPnl(d as PnlData),
-  defi: (d) => renderDefi(d as DefiData),
-  history: (d) => renderHistory(d as HistoryData),
-  nft: (d) => renderNft(d as NftData),
-  compare: (d) => renderCompare(d as CompareData),
-};
-
-export function renderReport(command: Command, data: unknown): string {
-  const renderer = renderers[command];
-  return renderer(data);
+  // ... render stats, analysis, allocation, patterns, chains
+  // Use exact HTML structure from dashboard-v2 mockup
 }
 ```
 
-- [ ] **Step 2: Commit**
+Same pattern for QuickReport, PnlReport, DefiReport, HistoryReport, NftReport, CompareReport — each renders its specific data shape with GSAP entrance animations.
+
+- [ ] **Step 2: Create `frontend/src/components/reports/index.tsx`**
+
+Router that picks the right component based on command:
+
+```tsx
+import type { Command } from "../../api";
+import { ResearchReport } from "./ResearchReport";
+import { QuickReport } from "./QuickReport";
+import { PnlReport } from "./PnlReport";
+import { DefiReport } from "./DefiReport";
+import { HistoryReport } from "./HistoryReport";
+import { NftReport } from "./NftReport";
+import { CompareReport } from "./CompareReport";
+
+interface Props {
+  command: Command;
+  data: unknown;
+}
+
+export function ReportView({ command, data }: Props): JSX.Element {
+  switch (command) {
+    case "research": return <ResearchReport data={data as any} />;
+    case "quick": return <QuickReport data={data as any} />;
+    case "pnl": return <PnlReport data={data as any} />;
+    case "defi": return <DefiReport data={data as any} />;
+    case "history": return <HistoryReport data={data as any} />;
+    case "nft": return <NftReport data={data as any} />;
+    case "compare": return <CompareReport data={data as any} />;
+  }
+}
+```
+
+- [ ] **Step 3: Commit**
 
 ```bash
-git add frontend/src/render.ts
-git commit -m "feat(frontend): add report renderers for all 7 commands"
+git add frontend/src/components/reports/
+git commit -m "feat(frontend): add report rendering components for all 7 commands"
 ```
 
 ---
 
-### Task 7: Dashboard interactivity
+### Task 6: Dashboard page
 
 **Files:**
-- Create: `frontend/src/app.ts`
+- Create: `frontend/src/pages/Dashboard.tsx`
+- Create: `frontend/src/styles/dashboard.css`
 
-- [ ] **Step 1: Create `frontend/src/app.ts`**
+- [ ] **Step 1: Create `frontend/src/pages/Dashboard.tsx`**
 
-```typescript
-import { query, COMMAND_PRICES, type Command } from "./api.ts";
-import { renderReport } from "./render.ts";
-
-// ── State ──
-let activeCommand: Command = "research";
+```tsx
+import { useState, useCallback } from "react";
+import { query, COMMANDS, getPrice, type Command } from "../api";
+import { ReportView } from "../components/reports";
+import "../styles/dashboard.css";
 
 interface HistoryEntry {
   command: Command;
   address: string;
-  resultSummary: string;
+  summary: string;
   cost: string;
-  timestamp: Date;
+  time: Date;
 }
 
-const historyEntries: HistoryEntry[] = [];
+export function Dashboard(): JSX.Element {
+  const [activeCmd, setActiveCmd] = useState<Command>("research");
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [report, setReport] = useState<{ command: Command; data: unknown } | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
 
-// ── DOM refs ──
-const reportEl = document.getElementById("report")!;
-const searchBtn = document.getElementById("searchBtn") as HTMLButtonElement;
-const addrInput = document.getElementById("addrInput") as HTMLInputElement;
-const historyBody = document.getElementById("historyBody") as HTMLTableSectionElement | null;
-
-// ── Command tab switching ──
-document.querySelectorAll<HTMLButtonElement>(".cmd-tab").forEach((tab) => {
-  tab.addEventListener("click", () => {
-    document.querySelectorAll(".cmd-tab").forEach((t) => t.classList.remove("active"));
-    tab.classList.add("active");
-    activeCommand = tab.dataset.cmd as Command;
-    const price = COMMAND_PRICES[activeCommand];
-    const label = activeCommand.charAt(0).toUpperCase() + activeCommand.slice(1);
-    searchBtn.textContent = `${label} · ${price}`;
-
-    if (activeCommand === "compare") {
-      addrInput.placeholder = "0xaddr1 0xaddr2";
+  const handleSearch = useCallback(async () => {
+    const addresses = input.match(/0x[a-fA-F0-9]{40}/g);
+    if (activeCmd === "compare") {
+      if (!addresses || addresses.length < 2) { setError("Enter two valid addresses."); return; }
     } else {
-      addrInput.placeholder = "0x...";
+      if (!addresses || addresses.length === 0) { setError("Enter a valid wallet address (0x...)."); return; }
     }
-  });
-});
 
-// ── Search ──
-async function executeSearch(): Promise<void> {
-  const input = addrInput.value.trim();
-  const addresses = input.match(/0x[a-fA-F0-9]{40}/g);
+    setLoading(true);
+    setError(null);
+    setReport(null);
 
-  if (activeCommand === "compare") {
-    if (!addresses || addresses.length < 2) {
-      reportEl.innerHTML = '<div class="empty-state"><p>Enter two valid wallet addresses to compare.</p></div>';
-      return;
+    try {
+      const body = activeCmd === "compare"
+        ? { addressA: addresses![0], addressB: addresses![1] }
+        : { address: addresses![0] };
+
+      const data = await query(activeCmd, body);
+      setReport({ command: activeCmd, data });
+      setHistory((prev) => [
+        { command: activeCmd, address: addresses![0], summary: "Done", cost: getPrice(activeCmd), time: new Date() },
+        ...prev,
+      ].slice(0, 20));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
     }
-  } else {
-    if (!addresses || addresses.length === 0) {
-      reportEl.innerHTML = '<div class="empty-state"><p>Enter a valid wallet address (0x...).</p></div>';
-      return;
-    }
-  }
+  }, [activeCmd, input]);
 
-  // Loading state
-  searchBtn.disabled = true;
-  searchBtn.textContent = "Loading...";
-  reportEl.innerHTML = '<div class="empty-state"><p>Fetching data...</p></div>';
+  return (
+    <>
+      <div className="topbar">
+        <div className="topbar-left">
+          <a href="/" className="topbar-logo">Intelligence Wire</a>
+          <nav className="topbar-nav">
+            <span className="active">Research</span>
+          </nav>
+        </div>
+      </div>
 
-  try {
-    const body = activeCommand === "compare"
-      ? { addressA: addresses![0], addressB: addresses![1] }
-      : { address: addresses![0] };
+      <div className="main">
+        <div className="search-area">
+          <div className="search-top">
+            <h1>Research</h1>
+            <div className="cmd-tabs">
+              {COMMANDS.map((c) => (
+                <button
+                  key={c.cmd}
+                  className={`cmd-tab ${activeCmd === c.cmd ? "active" : ""}`}
+                  onClick={() => setActiveCmd(c.cmd)}
+                >
+                  {c.label} <span className="price">{c.price}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="search-row">
+            <input
+              className="search-input"
+              placeholder={activeCmd === "compare" ? "0xaddr1 0xaddr2" : "0x..."}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+            />
+            <button className="search-btn" onClick={handleSearch} disabled={loading}>
+              {loading ? "Loading..." : `${activeCmd.charAt(0).toUpperCase() + activeCmd.slice(1)} · ${getPrice(activeCmd)}`}
+            </button>
+          </div>
+          <div className="search-hint">Paid via x402 · USDC on Base · settles instantly</div>
+        </div>
 
-    const data = await query(activeCommand, body);
-    reportEl.innerHTML = renderReport(activeCommand, data);
+        {error && (
+          <div className="empty-state"><p style={{ color: "var(--danger)" }}>Error: {error}</p></div>
+        )}
 
-    // Add to history
-    addToHistory(activeCommand, addresses![0], data);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    reportEl.innerHTML = `<div class="empty-state"><p style="color: var(--danger);">Error: ${msg}</p></div>`;
-  } finally {
-    searchBtn.disabled = false;
-    const label = activeCommand.charAt(0).toUpperCase() + activeCommand.slice(1);
-    searchBtn.textContent = `${label} · ${COMMAND_PRICES[activeCommand]}`;
-  }
-}
+        {report && <ReportView command={report.command} data={report.data} />}
 
-searchBtn.addEventListener("click", executeSearch);
-addrInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") executeSearch();
-});
+        {!report && !error && !loading && (
+          <div className="empty-state"><p>Enter a wallet address and pick a command to start.</p></div>
+        )}
 
-// ── History ──
-function addToHistory(command: Command, address: string, data: unknown): void {
-  let resultSummary = "";
-  try {
-    const d = data as Record<string, unknown>;
-    if (d.data && typeof d.data === "object") {
-      const dd = d.data as Record<string, unknown>;
-      resultSummary = `$${Number(dd.totalValueUsd ?? 0).toLocaleString()}`;
-    } else if (d.portfolio && typeof d.portfolio === "object") {
-      const p = d.portfolio as Record<string, unknown>;
-      resultSummary = `$${Number(p.totalValueUsd ?? 0).toLocaleString()}`;
-    } else if (d.pnl && typeof d.pnl === "object") {
-      const roi = Number(d.roi ?? 0);
-      resultSummary = `${roi >= 0 ? "+" : ""}${roi.toFixed(1)}% ROI`;
-    } else if (d.totalDefiUsd != null) {
-      resultSummary = `$${Number(d.totalDefiUsd).toLocaleString()} DeFi`;
-    } else if (d.totalEstimatedUsd != null) {
-      resultSummary = `$${Number(d.totalEstimatedUsd).toLocaleString()} NFTs`;
-    } else {
-      resultSummary = "Done";
-    }
-  } catch {
-    resultSummary = "Done";
-  }
-
-  historyEntries.unshift({
-    command,
-    address,
-    resultSummary,
-    cost: COMMAND_PRICES[command],
-    timestamp: new Date(),
-  });
-
-  renderHistory();
-}
-
-function renderHistory(): void {
-  if (!historyBody) return;
-
-  historyBody.innerHTML = historyEntries.slice(0, 10).map((entry) => `
-    <tr>
-      <td><span class="mono">/${entry.command}</span></td>
-      <td><span class="mono">${entry.address.slice(0, 6)}...${entry.address.slice(-4)}</span></td>
-      <td>${entry.resultSummary}</td>
-      <td>${entry.cost}</td>
-      <td style="color: var(--ink-3);">${entry.timestamp.toLocaleTimeString()}</td>
-    </tr>
-  `).join("");
+        {history.length > 0 && (
+          <div className="history-section">
+            <div className="txn-header">
+              <h3>Query history</h3>
+              <span>{history.length} queries</span>
+            </div>
+            <table>
+              <thead><tr><th>Command</th><th>Address</th><th>Cost</th><th>Time</th></tr></thead>
+              <tbody>
+                {history.map((h, i) => (
+                  <tr key={i}>
+                    <td><span className="mono">/{h.command}</span></td>
+                    <td><span className="mono">{h.address.slice(0, 6)}...{h.address.slice(-4)}</span></td>
+                    <td>{h.cost}</td>
+                    <td style={{ color: "var(--ink-3)" }}>{h.time.toLocaleTimeString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </>
+  );
 }
 ```
 
-- [ ] **Step 2: Update `app.html` command tabs with `data-cmd` attributes**
+- [ ] **Step 2: Create `frontend/src/styles/dashboard.css`**
 
-Each `.cmd-tab` button needs a `data-cmd` attribute:
-```html
-<button class="cmd-tab" data-cmd="quick">/quick <span class="price">$0.01</span></button>
-<button class="cmd-tab active" data-cmd="research">/research <span class="price">$0.05</span></button>
-<button class="cmd-tab" data-cmd="pnl">/pnl <span class="price">$0.02</span></button>
-<button class="cmd-tab" data-cmd="defi">/defi <span class="price">$0.02</span></button>
-<button class="cmd-tab" data-cmd="history">/history <span class="price">$0.02</span></button>
-<button class="cmd-tab" data-cmd="nft">/nft <span class="price">$0.02</span></button>
-<button class="cmd-tab" data-cmd="compare">/compare <span class="price">$0.05</span></button>
-```
-
-Add history table with `id="historyBody"` on `<tbody>`.
+Extract all dashboard CSS from the approved dashboard-v2 mockup: topbar, search area, cmd-tabs, stats-row, report-body, analysis, sidebar, allocation list, defi list, pnl grid, transaction table, badges, history, responsive breakpoints.
 
 - [ ] **Step 3: Verify**
 
-Run: `cd frontend && npm run dev` (with backend running on :4000)
-Open: `http://localhost:3000/app.html`
-Test: Select a command, enter an address, click button. Report should render (or show 402 error if payment middleware is active).
+Run: `cd frontend && npm run dev` (with backend on :4000)
+Open: `http://localhost:3000/app`
+Test: Tab switching works, search submits, reports render (or 402 if payment middleware active).
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add frontend/src/app.ts frontend/app.html
-git commit -m "feat(frontend): add dashboard interactivity and search"
+git add frontend/src/pages/Dashboard.tsx frontend/src/styles/dashboard.css
+git commit -m "feat(frontend): add dashboard page with search and report rendering"
 ```
 
 ---
 
-### Task 8: Express static file serving
+### Task 7: Express static file serving
 
 **Files:**
 - Modify: `src/index.ts`
+- Modify: `package.json`
+- Modify: `.gitignore`
 
 - [ ] **Step 1: Add static file serving to Express**
 
-Add before the route registrations in `src/index.ts`:
-
+Add imports at top of `src/index.ts`:
 ```typescript
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const frontendDist = join(__dirname, "..", "frontend", "dist");
 ```
 
-Add after all API routes are registered:
-
+Add after all API routes:
 ```typescript
-// Serve frontend static files
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const frontendDist = join(__dirname, "..", "frontend", "dist");
+
 app.use(express.static(frontendDist));
 
-// SPA fallback — serve index.html for unmatched GET requests
+// SPA fallback — React Router handles client-side routing
 app.get("*", (_req, res) => {
   res.sendFile(join(frontendDist, "index.html"));
 });
 ```
 
-- [ ] **Step 2: Add build script to root `package.json`**
+- [ ] **Step 2: Add build scripts to root `package.json`**
 
-Add to scripts in root `package.json`:
 ```json
-"build:frontend": "cd frontend && npm run build",
-"build": "cd frontend && npm run build"
+"build:frontend": "cd frontend && npm run build"
 ```
 
-- [ ] **Step 3: Build and verify**
+- [ ] **Step 3: Add to `.gitignore`**
 
-Run: `cd frontend && npm run build`
-Expected: `frontend/dist/` created with `index.html`, `app.html`, bundled JS/CSS.
-
-Run: `cd .. && npm run dev`
-Open: `http://localhost:4000` → landing page
-Open: `http://localhost:4000/app.html` → dashboard
-
-- [ ] **Step 4: Add `frontend/dist/` to `.gitignore`**
-
-Append to `.gitignore`:
 ```
 frontend/dist/
 frontend/node_modules/
 ```
 
+- [ ] **Step 4: Build and verify**
+
+Run: `cd frontend && npm run build && cd .. && npm run dev`
+Open: `http://localhost:4000` → landing
+Open: `http://localhost:4000/app` → dashboard
+
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/index.ts package.json .gitignore
-git commit -m "feat: serve frontend static files from Express"
+git commit -m "feat: serve React frontend from Express"
 ```
 
 ---
 
-### Task 9: End-to-end verification
+### Task 8: End-to-end verification
 
-- [ ] **Step 1: Build frontend**
+- [ ] **Step 1: Build and start**
 
-Run: `cd frontend && npm run build`
+```bash
+cd frontend && npm run build && cd .. && npm run dev
+```
 
-- [ ] **Step 2: Start server**
-
-Run: `cd .. && npm run dev`
-
-- [ ] **Step 3: Verify landing page**
+- [ ] **Step 2: Verify landing page**
 
 Open: `http://localhost:4000`
-Check:
-- All sections render (hero, commands, pipeline, how, pricing, footer)
-- Scroll animations trigger
-- "Launch app" button navigates to `/app.html`
+- All sections render
+- GSAP scroll animations trigger (staggered reveals on commands, pipeline, sections)
+- `prefers-reduced-motion` is respected (no motion when enabled)
+- "Launch dashboard" navigates to `/app`
 - Responsive at mobile widths
 
-- [ ] **Step 4: Verify dashboard**
+- [ ] **Step 3: Verify dashboard**
 
-Open: `http://localhost:4000/app.html`
-Check:
-- Command tabs switch correctly
-- Search button label updates with command name + price
-- Address input works
-- Submitting a query calls the API (may get 402 — that's expected if x402 middleware is active)
-- Report renders for successful queries
+Open: `http://localhost:4000/app`
+- Command tabs switch, button label updates
+- Search calls API
+- Reports render with GSAP entrance animations
 - History table populates
+- Compare mode asks for two addresses
 
-- [ ] **Step 5: Final commit**
+- [ ] **Step 4: Final commit**
 
 ```bash
 git add -A
-git commit -m "feat(frontend): complete landing + dashboard frontend"
+git commit -m "feat(frontend): complete React + GSAP landing + dashboard"
 ```
