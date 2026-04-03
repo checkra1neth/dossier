@@ -1,14 +1,20 @@
 import {
   Agent,
   CommandRouter,
-  createUser,
-  createSigner,
   createERC20TransferCalls,
   getERC20Decimals,
   validHex,
+  type Signer,
+  IdentifierKind,
 } from "@xmtp/agent-sdk";
 import { parseUnits, hexToNumber } from "viem";
 import { base } from "viem/chains";
+import {
+  createWallet as owsCreateWallet,
+  getWallet as owsGetWallet,
+  signMessage as owsSignMessage,
+  listWallets as owsListWallets,
+} from "@open-wallet-standard/core";
 import { research } from "./pipeline.ts";
 import { reportToMarkdown } from "./report.ts";
 
@@ -19,9 +25,53 @@ const RESEARCH_PRICE = "0.05"; // USDC
 // Pending research requests: conversationId → target address
 const pendingResearch = new Map<string, string>();
 
+// Create XMTP Signer from OWS wallet
+function createOwsSigner(walletName: string): Signer {
+  const wallet = owsGetWallet(walletName);
+  if (!wallet) throw new Error(`OWS wallet "${walletName}" not found`);
+
+  const evmAccount = wallet.accounts.find((a: { chainId: string }) => a.chainId.startsWith("eip155:"));
+  if (!evmAccount) throw new Error(`No EVM account in OWS wallet "${walletName}"`);
+
+  const address = evmAccount.address as `0x${string}`;
+
+  return {
+    type: "EOA" as const,
+    getIdentifier: () => ({
+      identifier: address,
+      identifierKind: IdentifierKind.Ethereum,
+    }),
+    signMessage: (message: string) => {
+      const result = owsSignMessage(walletName, "evm", message);
+      // OWS returns {signature: hex, recoveryId: number}
+      // XMTP expects Uint8Array (65 bytes: r + s + v)
+      const sigHex = result.signature.startsWith("0x") ? result.signature.slice(2) : result.signature;
+      const sigBytes = new Uint8Array(Buffer.from(sigHex, "hex"));
+      // Append recovery ID as v byte if not already 65 bytes
+      if (sigBytes.length === 64) {
+        const full = new Uint8Array(65);
+        full.set(sigBytes);
+        full[64] = (result.recoveryId ?? 0) + 27;
+        return full;
+      }
+      return sigBytes;
+    },
+  };
+}
+
 export async function startXmtpAgent(): Promise<Agent> {
-  const walletKey = process.env.WALLET_KEY as `0x${string}`;
-  if (!walletKey) throw new Error("WALLET_KEY is not set");
+  const owsWalletName = process.env.OWS_WALLET_NAME || "research-agent";
+
+  // Create OWS wallet if it doesn't exist
+  const wallets = owsListWallets();
+  if (!wallets.find((w: { name: string }) => w.name === owsWalletName)) {
+    console.log(`[xmtp] Creating OWS wallet "${owsWalletName}"...`);
+    owsCreateWallet(owsWalletName);
+  }
+
+  const signer = createOwsSigner(owsWalletName);
+  const identifier = signer.getIdentifier();
+  console.log(`[xmtp] OWS wallet "${owsWalletName}" → ${typeof identifier === 'object' && 'identifier' in identifier ? identifier.identifier : 'unknown'}`);
 
   const dbKeyHex = process.env.DB_ENCRYPTION_KEY;
   const dbEncryptionKey = dbKeyHex
@@ -30,8 +80,6 @@ export async function startXmtpAgent(): Promise<Agent> {
 
   const xmtpEnv = (process.env.XMTP_ENV || "dev") as "dev" | "production";
 
-  const user = createUser(walletKey);
-  const signer = createSigner(user);
   const agent = await Agent.create(signer, {
     env: xmtpEnv,
     dbEncryptionKey,
