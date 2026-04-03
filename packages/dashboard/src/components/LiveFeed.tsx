@@ -13,18 +13,20 @@ const AGENT_COLORS: Record<string, string> = {
 };
 
 function summarize(event: WireEvent): string {
-  const d = event.data;
+  const d = event.data as Record<string, any>;
   switch (event.type) {
     case "raw_event":
-      return `Whale movement: ${d.amount ?? "unknown"} ${d.token ?? d.asset ?? ""}`;
-    case "enriched_event":
-      return `Portfolio: ${d.portfolio ?? "?"}, Smart money: ${d.smartMoney ?? d.smart_money ?? "N/A"}`;
+      return `Whale: $${Number(d.valueUsd ?? 0).toLocaleString()} ${d.type ?? ""} from ${String(d.from ?? "").slice(0, 10)}...`;
+    case "enriched_event": {
+      const wp = d.walletProfile ?? {};
+      return `Portfolio: $${Number(wp.totalValueUsd ?? 0).toLocaleString()}, Smart money: ${wp.isSmartMoney ?? false}`;
+    }
     case "signal":
-      return `${d.action ?? "WATCH"} ${d.asset ?? "?"} — confidence ${d.confidence ?? "?"}%: ${d.reasoning ?? ""}`;
+      return `${d.action ?? "WATCH"} ${d.asset ?? "?"} — ${d.confidence ?? "?"}% — ${String(d.reasoning ?? "").slice(0, 80)}`;
     case "trade_result":
-      return `[${d.platform ?? "?"}] ${d.action ?? "?"} — ${d.status ?? "pending"}`;
+      return `[${d.platform ?? "?"}] ${String(d.action ?? "").slice(0, 60)} — ${d.status ?? "pending"}`;
     case "status":
-      return String(d.message ?? d.status ?? JSON.stringify(d));
+      return String(d.message ?? JSON.stringify(d)).slice(0, 100);
     default:
       return JSON.stringify(d).slice(0, 120);
   }

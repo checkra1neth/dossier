@@ -31,12 +31,14 @@ export function useSSE(): {
       es.onmessage = (e) => {
         try {
           const parsed = JSON.parse(e.data);
+          // SSE sends { agent, wireMessage: { type, from, timestamp, data } }
+          const wm = parsed.wireMessage ?? parsed;
           const event: WireEvent = {
             id: `${agent}-${counterRef.current++}`,
-            agent,
-            type: parsed.type ?? "status",
-            data: parsed,
-            timestamp: Date.now(),
+            agent: wm.from ?? agent,
+            type: wm.type ?? "status",
+            data: wm.data ?? wm,
+            timestamp: wm.timestamp ?? Date.now(),
           };
           setEvents((prev) => [event, ...prev].slice(0, MAX_EVENTS));
         } catch {
