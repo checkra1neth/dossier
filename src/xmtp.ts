@@ -23,6 +23,11 @@ import { handleDefi, defiToText } from "./commands/defi.ts";
 import { handleHistory, historyToText } from "./commands/history.ts";
 import { handleNft, nftToText } from "./commands/nft.ts";
 import { handleCompare, compareToText } from "./commands/compare.ts";
+import { handleBalance, balanceToText } from "./commands/balance.ts";
+import { parseSwapCommand, handleSwap, swapOfferToText, executeSwap } from "./commands/swap.ts";
+import { parseBridgeCommand, handleBridge, bridgeOfferToText, executeSwap as executeBridge } from "./commands/bridge.ts";
+import { parseSendCommand, handleSend, sendToText, executeSend } from "./commands/send.ts";
+import { getWalletInfo } from "./services/ows.ts";
 
 const CHAIN = base;
 const USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
@@ -30,6 +35,13 @@ const RESEARCH_PRICE = "0.05"; // USDC
 
 // Pending research requests: conversationId → target address
 const pendingResearch = new Map<string, string>();
+
+// Pending wallet action confirmations: conversationId → action
+const pendingAction = new Map<string, {
+  type: string;
+  data: unknown;
+  execute: () => Promise<string>;
+}>();
 
 // Create XMTP Signer from OWS wallet
 function createOwsSigner(walletName: string): Signer {
@@ -219,6 +231,112 @@ export async function startXmtpAgent(): Promise<Agent> {
     } catch (err) { console.error(`[xmtp] ❌ /compare failed:`, err); await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
   });
 
+  // -----------------------------------------------------------------------
+  // Wallet action commands
+  // -----------------------------------------------------------------------
+
+  router.command("/balance", "Check your wallet balance (free)", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
+    console.log(`[xmtp] /balance`);
+    try {
+      const report = await handleBalance(owsWalletName);
+      console.log(`[xmtp] ✅ /balance done — $${report.totalUsd.toLocaleString()}`);
+      await ctx.conversation.sendText(balanceToText(report));
+    } catch (err) {
+      console.error(`[xmtp] ❌ /balance failed:`, err);
+      await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`);
+    }
+  });
+
+  router.command("/swap", "Swap tokens ($0.01)", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
+    const text = ctx.message.content as string;
+    console.log(`[xmtp] /swap ${text}`);
+
+    const request = parseSwapCommand(text);
+    if (!request) {
+      await ctx.conversation.sendText("Usage: /swap <amount> <token> to <token> [on <chain>]\nExample: /swap 10 USDC to ETH on base");
+      return;
+    }
+
+    try {
+      const walletInfo = getWalletInfo(owsWalletName);
+      const result = await handleSwap(request, walletInfo.address);
+
+      const convId = ctx.conversation.id;
+      pendingAction.set(convId, {
+        type: "swap",
+        data: result,
+        execute: () => executeSwap(result.offer, owsWalletName, request.chain),
+      });
+
+      console.log(`[xmtp] ✅ /swap offer ready via ${result.offer.source}`);
+      await ctx.conversation.sendText(swapOfferToText(request, result));
+    } catch (err) {
+      console.error(`[xmtp] ❌ /swap failed:`, err);
+      await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`);
+    }
+  });
+
+  router.command("/bridge", "Bridge tokens across chains ($0.01)", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
+    const text = ctx.message.content as string;
+    console.log(`[xmtp] /bridge ${text}`);
+
+    const request = parseBridgeCommand(text);
+    if (!request) {
+      await ctx.conversation.sendText("Usage: /bridge <amount> <token> from <chain> to <chain>\nExample: /bridge 100 USDC from base to ethereum");
+      return;
+    }
+
+    try {
+      const walletInfo = getWalletInfo(owsWalletName);
+      const result = await handleBridge(request, walletInfo.address);
+
+      const convId = ctx.conversation.id;
+      pendingAction.set(convId, {
+        type: "bridge",
+        data: result,
+        execute: () => executeBridge(result.offer, owsWalletName, request.fromChain),
+      });
+
+      console.log(`[xmtp] ✅ /bridge offer ready via ${result.offer.source}`);
+      await ctx.conversation.sendText(bridgeOfferToText(request, result));
+    } catch (err) {
+      console.error(`[xmtp] ❌ /bridge failed:`, err);
+      await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`);
+    }
+  });
+
+  router.command("/send", "Send tokens to an address ($0.01)", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
+    const text = ctx.message.content as string;
+    console.log(`[xmtp] /send ${text}`);
+
+    const request = parseSendCommand(text);
+    if (!request) {
+      await ctx.conversation.sendText("Usage: /send <amount> <token> to <0xaddress> [on <chain>]\nExample: /send 10 USDC to 0xABC...123 on base");
+      return;
+    }
+
+    try {
+      const result = await handleSend(request, owsWalletName);
+
+      const convId = ctx.conversation.id;
+      pendingAction.set(convId, {
+        type: "send",
+        data: result,
+        execute: () => executeSend(result, owsWalletName),
+      });
+
+      console.log(`[xmtp] ✅ /send prepared — ${request.amount} ${request.symbol} to ${request.toAddress}`);
+      await ctx.conversation.sendText(sendToText(result));
+    } catch (err) {
+      console.error(`[xmtp] ❌ /send failed:`, err);
+      await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`);
+    }
+  });
+
   // Handle payment confirmation
   agent.on("transaction-reference", async (ctx) => {
     if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
@@ -254,9 +372,45 @@ export async function startXmtpAgent(): Promise<Agent> {
 
   router.default(async (ctx) => {
     if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
+
+    const text = (ctx.message.content as string).trim().toLowerCase();
+    const convId = ctx.conversation.id;
+
+    // Handle confirm/cancel for pending wallet actions
+    if (text === "confirm") {
+      const action = pendingAction.get(convId);
+      if (!action) {
+        await ctx.conversation.sendText("Nothing to confirm.");
+        return;
+      }
+      pendingAction.delete(convId);
+      console.log(`[xmtp] Confirming ${action.type}...`);
+      try {
+        const txResult = await action.execute();
+        console.log(`[xmtp] ✅ ${action.type} executed — ${txResult}`);
+        await ctx.conversation.sendText(`✅ ${action.type} executed!\n${txResult}`);
+      } catch (err) {
+        console.error(`[xmtp] ❌ ${action.type} execution failed:`, err);
+        await ctx.conversation.sendText(`❌ ${action.type} failed: ${err instanceof Error ? err.message : err}`);
+      }
+      return;
+    }
+
+    if (text === "cancel") {
+      const action = pendingAction.get(convId);
+      pendingAction.delete(convId);
+      if (action) {
+        console.log(`[xmtp] Cancelled ${action.type}`);
+        await ctx.conversation.sendText(`Cancelled ${action.type}.`);
+      } else {
+        await ctx.conversation.sendText("Nothing to cancel.");
+      }
+      return;
+    }
+
     await ctx.conversation.sendText(
-      `👋 OWS Intelligence Wire\n\n` +
-      `📊 Analytics:\n` +
+      `OWS Intelligence Wire\n\n` +
+      `Analytics:\n` +
       `  /quick 0x<addr>  — portfolio snapshot ($0.01)\n` +
       `  /research 0x<addr> — deep research ($0.05)\n` +
       `  /pnl 0x<addr>  — profit & loss ($0.02)\n` +
@@ -264,6 +418,11 @@ export async function startXmtpAgent(): Promise<Agent> {
       `  /history 0x<addr> — tx history ($0.02)\n` +
       `  /nft 0x<addr>  — NFT portfolio ($0.02)\n` +
       `  /compare 0x<a> 0x<b> — compare wallets ($0.05)\n\n` +
+      `Wallet actions:\n` +
+      `  /balance — check wallet balance (free)\n` +
+      `  /swap <amt> <token> to <token> [on <chain>] ($0.01)\n` +
+      `  /bridge <amt> <token> from <chain> to <chain> ($0.01)\n` +
+      `  /send <amt> <token> to <0xaddr> [on <chain>] ($0.01)\n\n` +
       `Payments via x402 (USDC on Base, gasless).`
     );
   });

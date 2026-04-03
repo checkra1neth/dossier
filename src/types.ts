@@ -76,3 +76,10 @@ export interface CompareReport {
   b: { portfolio: PortfolioData; positions: Position[]; pnl: PnlData };
   verdict: string;
 }
+
+export interface BalanceReport {
+  wallet: string;
+  address: string;
+  positions: Position[];
+  totalUsd: number;
+}

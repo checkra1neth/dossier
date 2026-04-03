@@ -20,6 +20,11 @@ import { handleDefi } from "./commands/defi.ts";
 import { handleHistory } from "./commands/history.ts";
 import { handleNft } from "./commands/nft.ts";
 import { handleCompare } from "./commands/compare.ts";
+import { handleBalance } from "./commands/balance.ts";
+import { handleSwap } from "./commands/swap.ts";
+import { handleBridge } from "./commands/bridge.ts";
+import { handleSend } from "./commands/send.ts";
+import { getWalletInfo } from "./services/ows.ts";
 
 // Prevent server crash on unhandled errors
 process.on("unhandledRejection", (err) => {
@@ -215,6 +220,123 @@ compareRouter.post("/", async (req: express.Request, res: express.Response) => {
   }
 });
 
+// /balance — FREE (reads own wallet, no payment needed)
+app.get("/balance", async (req: express.Request, res: express.Response) => {
+  const walletName = (req.query.wallet as string) || process.env.OWS_WALLET_NAME || "research-agent";
+  console.log(`[api] /balance for wallet "${walletName}"`);
+  try {
+    const report = await handleBalance(walletName);
+    console.log(`[api] ✅ /balance done — $${report.totalUsd.toLocaleString()}`);
+    res.json(report);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[api] ❌ /balance failed: ${msg}`);
+    res.status(500).json({ error: msg });
+  }
+});
+
+const swapRouter = express.Router();
+
+swapRouter.post("/", async (req: express.Request, res: express.Response) => {
+  const { amount, inputToken, outputToken, chain, walletAddress } = req.body as {
+    amount?: number;
+    inputToken?: string;
+    outputToken?: string;
+    chain?: string;
+    walletAddress?: string;
+  };
+
+  if (!amount || !inputToken || !outputToken) {
+    res.status(400).json({ error: "Required: amount, inputToken, outputToken" });
+    return;
+  }
+
+  const resolvedChain = chain ?? "base";
+  const wallet = walletAddress ?? getWalletInfo(owsWalletName).address;
+
+  console.log(`[x402] ✅ Payment verified — swap ${amount} ${inputToken} -> ${outputToken} on ${resolvedChain}`);
+
+  try {
+    const result = await handleSwap(
+      { amount, inputSymbol: inputToken, outputSymbol: outputToken, chain: resolvedChain },
+      wallet,
+    );
+    console.log(`[api] ✅ Swap offer ready via ${result.offer.source}`);
+    res.json(result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[api] ❌ Swap failed: ${msg}`);
+    res.status(500).json({ error: msg });
+  }
+});
+
+const bridgeRouter = express.Router();
+
+bridgeRouter.post("/", async (req: express.Request, res: express.Response) => {
+  const { amount, symbol, fromChain, toChain, walletAddress } = req.body as {
+    amount?: number;
+    symbol?: string;
+    fromChain?: string;
+    toChain?: string;
+    walletAddress?: string;
+  };
+
+  if (!amount || !symbol || !fromChain || !toChain) {
+    res.status(400).json({ error: "Required: amount, symbol, fromChain, toChain" });
+    return;
+  }
+
+  const wallet = walletAddress ?? getWalletInfo(owsWalletName).address;
+
+  console.log(`[x402] ✅ Payment verified — bridge ${amount} ${symbol} from ${fromChain} to ${toChain}`);
+
+  try {
+    const result = await handleBridge(
+      { amount, symbol, fromChain, toChain },
+      wallet,
+    );
+    console.log(`[api] ✅ Bridge offer ready via ${result.offer.source}`);
+    res.json(result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[api] ❌ Bridge failed: ${msg}`);
+    res.status(500).json({ error: msg });
+  }
+});
+
+const sendRouter = express.Router();
+
+sendRouter.post("/", async (req: express.Request, res: express.Response) => {
+  const { amount, symbol, toAddress, chain } = req.body as {
+    amount?: number;
+    symbol?: string;
+    toAddress?: string;
+    chain?: string;
+  };
+
+  if (!amount || !symbol || !toAddress?.match(/^0x[a-fA-F0-9]{40}$/)) {
+    res.status(400).json({ error: "Required: amount, symbol, toAddress (valid 0x address)" });
+    return;
+  }
+
+  const resolvedChain = chain ?? "base";
+
+  console.log(`[x402] ✅ Payment verified — send ${amount} ${symbol} to ${toAddress} on ${resolvedChain}`);
+
+  try {
+    const result = await handleSend(
+      { amount, symbol, toAddress, chain: resolvedChain },
+      owsWalletName,
+    );
+    console.log(`[api] ✅ Send prepared — ${amount} ${symbol} to ${toAddress}`);
+    res.json(result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[api] ❌ Send failed: ${msg}`);
+    res.status(500).json({ error: msg });
+  }
+});
+
 try {
   const cdpKeyId = process.env.CDP_API_KEY_ID;
   const cdpKeySecret = process.env.CDP_API_KEY_SECRET;
@@ -324,6 +446,36 @@ try {
       description: "Compare two wallets",
       mimeType: "application/json",
     },
+    "POST /swap": {
+      accepts: {
+        scheme: "exact" as const,
+        network,
+        payTo,
+        price: "$0.01" as const,
+      },
+      description: "Swap tokens via DEX aggregator",
+      mimeType: "application/json",
+    },
+    "POST /bridge": {
+      accepts: {
+        scheme: "exact" as const,
+        network,
+        payTo,
+        price: "$0.01" as const,
+      },
+      description: "Bridge tokens across chains",
+      mimeType: "application/json",
+    },
+    "POST /send": {
+      accepts: {
+        scheme: "exact" as const,
+        network,
+        payTo,
+        price: "$0.01" as const,
+      },
+      description: "Send tokens to an address",
+      mimeType: "application/json",
+    },
   };
 
   app.use(
@@ -343,19 +495,28 @@ app.use("/defi", defiRouter);
 app.use("/history", historyRouter);
 app.use("/nft", nftRouter);
 app.use("/compare", compareRouter);
+app.use("/swap", swapRouter);
+app.use("/bridge", bridgeRouter);
+app.use("/send", sendRouter);
 
 // Start servers
 const port = parseInt(process.env.PORT ?? "4000");
 
 app.listen(port, () => {
   console.log(`[server] REST API listening on http://localhost:${port}`);
-  console.log(`[server] POST /quick    — $0.01 via x402`);
-  console.log(`[server] POST /research — $0.05 via x402`);
-  console.log(`[server] POST /pnl      — $0.02 via x402`);
-  console.log(`[server] POST /defi     — $0.02 via x402`);
-  console.log(`[server] POST /history  — $0.02 via x402`);
-  console.log(`[server] POST /nft      — $0.02 via x402`);
-  console.log(`[server] POST /compare  — $0.05 via x402`);
+  console.log(`[server] Analytics:`);
+  console.log(`[server]   POST /quick    — $0.01 via x402`);
+  console.log(`[server]   POST /research — $0.05 via x402`);
+  console.log(`[server]   POST /pnl      — $0.02 via x402`);
+  console.log(`[server]   POST /defi     — $0.02 via x402`);
+  console.log(`[server]   POST /history  — $0.02 via x402`);
+  console.log(`[server]   POST /nft      — $0.02 via x402`);
+  console.log(`[server]   POST /compare  — $0.05 via x402`);
+  console.log(`[server] Wallet actions:`);
+  console.log(`[server]   GET  /balance  — free`);
+  console.log(`[server]   POST /swap     — $0.01 via x402`);
+  console.log(`[server]   POST /bridge   — $0.01 via x402`);
+  console.log(`[server]   POST /send     — $0.01 via x402`);
   console.log(`[server] GET  /health`);
 });
 

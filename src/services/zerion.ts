@@ -341,6 +341,182 @@ export async function fetchTransactions(
   }));
 }
 
+// ---------------------------------------------------------------------------
+// Token resolution
+// ---------------------------------------------------------------------------
+
+export interface TokenInfo {
+  id: string;
+  symbol: string;
+  name: string;
+  address: string;
+  decimals: number;
+  chain: string;
+  price: number;
+}
+
+interface ZerionFungiblesResponse {
+  data: {
+    id: string;
+    attributes: {
+      name: string;
+      symbol: string;
+      market_data?: { price: number | null };
+      implementations: {
+        chain_id: string;
+        address: string | null;
+        decimals: number;
+      }[];
+    };
+  }[];
+}
+
+const NATIVE_TOKEN_ADDRESS = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+
+/**
+ * Resolve a token by name or symbol, returning its on-chain address and decimals
+ * for the requested chain.
+ */
+export async function resolveToken(
+  query: string,
+  chainId: string = "base",
+): Promise<TokenInfo | null> {
+  // Short-circuit for native token aliases
+  const normalized = query.trim().toLowerCase();
+  if (normalized === "eth" || normalized === "ether" || normalized === "ethereum") {
+    return {
+      id: "eth",
+      symbol: "ETH",
+      name: "Ethereum",
+      address: NATIVE_TOKEN_ADDRESS,
+      decimals: 18,
+      chain: chainId,
+      price: 0, // caller can enrich if needed
+    };
+  }
+
+  const url =
+    `${BASE_URL}/fungibles/` +
+    `?filter%5Bsearch_query%5D=${encodeURIComponent(query)}` +
+    `&currency=usd` +
+    `&page%5Bsize%5D=5`;
+
+  const json = await fetchJson<ZerionFungiblesResponse>(url);
+
+  if (!json.data || json.data.length === 0) return null;
+
+  // Find the first result that has an implementation on the target chain
+  for (const token of json.data) {
+    const impl = token.attributes.implementations.find(
+      (i) => i.chain_id === chainId,
+    );
+    if (impl) {
+      return {
+        id: token.id,
+        symbol: token.attributes.symbol,
+        name: token.attributes.name,
+        address: impl.address ?? NATIVE_TOKEN_ADDRESS,
+        decimals: impl.decimals,
+        chain: chainId,
+        price: token.attributes.market_data?.price ?? 0,
+      };
+    }
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Swap / Bridge offers
+// ---------------------------------------------------------------------------
+
+export interface SwapOffer {
+  source: string;
+  outputQuantity: string;
+  outputSymbol: string;
+  gas: number;
+  transaction: {
+    to: string;
+    from: string;
+    chainId: string;
+    gas: number;
+    data: string;
+    value: string;
+  };
+  slippage: string;
+}
+
+interface ZerionSwapResponse {
+  data: {
+    id: string;
+    attributes: {
+      source: { name: string };
+      slippage_percent: number;
+      output_quantity: string;
+      output_token: { symbol: string };
+      transaction: {
+        to: string;
+        from: string;
+        chain_id: string;
+        gas: number;
+        data: string;
+        value: string;
+      };
+    };
+  }[];
+}
+
+/**
+ * Fetch swap/bridge offers from Zerion. For bridges, set different
+ * inputChain / outputChain values.
+ */
+export async function fetchSwapOffers(params: {
+  fromAddress: string;
+  inputChain: string;
+  inputToken: string;
+  inputAmount: string;
+  outputChain: string;
+  outputToken: string;
+  slippage?: number;
+}): Promise<SwapOffer[]> {
+  const slippage = params.slippage ?? 2;
+
+  const url =
+    `${BASE_URL}/swap/offers/` +
+    `?input%5Bfrom%5D=${params.fromAddress}` +
+    `&input%5Bchain_id%5D=${params.inputChain}` +
+    `&input%5Basset_address%5D=${params.inputToken}` +
+    `&input%5Bamount%5D=${params.inputAmount}` +
+    `&output%5Bchain_id%5D=${params.outputChain}` +
+    `&output%5Basset_address%5D=${params.outputToken}` +
+    `&slippage_percent=${slippage}`;
+
+  const json = await fetchJson<ZerionSwapResponse>(url);
+
+  if (!json.data || json.data.length === 0) return [];
+
+  return json.data
+    .map((offer) => ({
+      source: offer.attributes.source.name,
+      outputQuantity: offer.attributes.output_quantity,
+      outputSymbol: offer.attributes.output_token.symbol,
+      gas: offer.attributes.transaction.gas,
+      transaction: {
+        to: offer.attributes.transaction.to,
+        from: offer.attributes.transaction.from,
+        chainId: offer.attributes.transaction.chain_id,
+        gas: offer.attributes.transaction.gas,
+        data: offer.attributes.transaction.data,
+        value: offer.attributes.transaction.value,
+      },
+      slippage: `${offer.attributes.slippage_percent}%`,
+    }))
+    .sort(
+      (a, b) =>
+        parseFloat(b.outputQuantity) - parseFloat(a.outputQuantity),
+    );
+}
+
 /**
  * Fetch NFT collections held by a wallet, sorted by floor price descending.
  */
