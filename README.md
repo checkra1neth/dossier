@@ -1,33 +1,26 @@
-# Intelligence Wire
+# OWS Deep Research Service
 
-**5 autonomous AI agents that collect on-chain intelligence, analyze it with LLM, and sell actionable signals via x402 micropayments.**
+**Paid on-chain wallet research via x402 micropayments.**
 
-Built for OWS Hackathon — April 3, 2026
+Built for OWS Hackathon — April 3, 2026 | Track 3: Pay-Per-Call Services
 
-## Architecture
+## What It Does
 
-```
-Allium WS --> Scanner --> Enricher (Zerion) --> Analyst (LLM) --> Distributor (XMTP DM)
-                                                     |
-                                                     +--> Trader (Myriad + DFlow + MoonPay + Ripple)
-```
+Send a wallet address → get a comprehensive on-chain research report. Portfolio analysis, risk assessment, smart money detection, pattern recognition.
 
-5 separate Node.js processes, each with its own wallet. Agents communicate via encrypted message bus. External clients pay for signals via x402 micropayments.
+Two interfaces:
+- **REST API** — `POST /research` with x402 payment ($0.05 USDC on Base Sepolia)
+- **XMTP DM** — send `/research 0x...` to the agent's address
 
-## Partner Integrations (9/10)
+## Partner Integrations
 
-| Partner | Agent | Usage |
-|---------|-------|-------|
-| **Allium** | Scanner | Real-time blockchain event streaming |
-| **Uniblock** | Scanner | Cross-chain data verification |
-| **Zerion** | Enricher | Smart money portfolio analysis |
-| **XMTP** | All | Encrypted agent-to-agent messaging protocol |
-| **x402** | Analyst | Pay-per-request signal API ($0.01/query) |
-| **OWS** | All | Wallet identity per agent |
-| **Myriad** | Trader | Prediction market trading |
-| **DFlow** | Trader | Order flow auction quotes |
-| **MoonPay** | Trader | Cross-chain bridges and swaps |
-| **Ripple** | Trader | XRPL cross-border payment demo |
+| Partner | Usage |
+|---------|-------|
+| **OWS** | Wallet identity for the service |
+| **x402** | Micropayment gate ($0.05/query) |
+| **XMTP** | Encrypted DM interface for humans |
+| **Zerion** | Portfolio + DeFi position data |
+| **OpenRouter** | LLM synthesis and analysis |
 
 ## Quick Start
 
@@ -35,58 +28,65 @@ Allium WS --> Scanner --> Enricher (Zerion) --> Analyst (LLM) --> Distributor (X
 # Install
 npm install
 
-# Generate wallet keys for all 5 agents
-npx tsx setup-wallets.ts
+# Configure (edit .env with your keys)
+cp .env.example .env
 
-# Launch everything (5 agents + dashboard)
-./start.sh
+# Run
+npm run dev
 ```
 
-**Dashboard:** http://localhost:3000
+## API
 
-## Individual Agents
+### POST /research (x402 — $0.05 USDC)
 
-| Agent | Port | Role |
-|-------|------|------|
-| Scanner | 4001 | Allium streaming + whale detection |
-| Enricher | 4002 | Zerion portfolio enrichment |
-| Analyst | 4003 | LLM analysis + x402 paid API |
-| Distributor | 4004 | XMTP DM alerts to subscribers |
-| Trader | 4005 | Multi-platform trading execution |
-
-## x402 Paid API
-
-The Analyst agent exposes paid endpoints on Base Sepolia:
-
-```
-GET http://localhost:4003/api/signals        # $0.01 — latest signals
-GET http://localhost:4003/api/signals/latest  # $0.005 — single latest
-GET http://localhost:4003/api/history         # $0.05 — 24h history
+```bash
+curl -X POST http://localhost:4000/research \
+  -H 'Content-Type: application/json' \
+  -d '{"address":"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"}'
 ```
 
-## Data Flow
+Returns JSON with `data` (raw Zerion data) and `analysis` (LLM report with markdown summary).
 
-1. **Scanner** detects whale transactions via Allium real-time streaming
-2. **Enricher** profiles the whale wallet via Zerion API (portfolio, positions, smart money score)
-3. **Analyst** generates BUY/SELL/WATCH signals using LLM analysis (OpenRouter)
-4. **Distributor** broadcasts signals to subscribers via encrypted XMTP DMs
-5. **Trader** executes on Myriad prediction markets, DFlow auctions, MoonPay bridges, Ripple cross-border
+### GET /health
+
+```bash
+curl http://localhost:4000/health
+```
+
+### XMTP
+
+Send a DM to the agent's XMTP address:
+```
+/research 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
+```
+
+## Architecture
+
+```
+Client ──(x402 $0.05)──→ POST /research
+                              │
+                         Zerion API (portfolio + positions)
+                              │
+                         OpenRouter LLM (deep analysis)
+                              │
+                         ← JSON Report
+
+XMTP DM ──→ same pipeline ──→ markdown reply
+```
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and fill in API keys:
-
-```bash
-cp .env.example .env
-npx tsx setup-wallets.ts  # Auto-generates wallet + DB keys
+```env
+WALLET_KEY=0x...              # OWS wallet private key
+DB_ENCRYPTION_KEY=0x...       # XMTP database encryption
+XMTP_ENV=dev                  # XMTP network
+ZERION_API_KEY=...            # Zerion portfolio API
+OPENROUTER_API_KEY=...        # OpenRouter LLM
+FACILITATOR_URL=https://x402.org/facilitator
+CHAIN_NETWORK=eip155:84532    # Base Sepolia
+PORT=4000
 ```
-
-Optional API keys (system works in mock mode without them):
-- `ALLIUM_API_KEY` — Real-time blockchain streaming
-- `ZERION_API_KEY` — Portfolio data
-- `OPENROUTER_API_KEY` — LLM analysis
-- `UNIBLOCK_API_KEY` — Cross-chain data
 
 ## Tech Stack
 
-TypeScript, Node.js 22, Express, React 19, Vite 6, viem
+TypeScript, Node.js 22, Express, @xmtp/agent-sdk, @x402/express, viem, Zerion API, OpenRouter API
