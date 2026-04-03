@@ -9,7 +9,6 @@ import { HTTPFacilitatorClient } from "@x402/core/server";
 import type { Network } from "@x402/core/types";
 import { privateKeyToAddress } from "viem/accounts";
 import { research } from "./pipeline.ts";
-import { startXmtpAgent } from "./xmtp.ts";
 
 const app = express();
 app.use(express.json());
@@ -76,11 +75,14 @@ app.listen(port, () => {
   console.log(`[server] GET  /health`);
 });
 
-// Start XMTP agent
-try {
-  const agent = await startXmtpAgent();
-  console.log(`[server] XMTP DM interface ready — address: ${agent.address}`);
-} catch (err) {
-  console.warn("[xmtp] Agent failed to start:", (err as Error).message);
-  console.warn("[xmtp] REST API still available without XMTP interface");
-}
+// Start XMTP agent (dynamic import to avoid crashing if native bindings fail)
+(async () => {
+  try {
+    const { startXmtpAgent } = await import("./xmtp.ts");
+    const agent = await startXmtpAgent();
+    console.log(`[server] XMTP DM interface ready — address: ${agent.address}`);
+  } catch (err) {
+    console.warn("[xmtp] Agent failed to start:", (err as Error).message);
+    console.warn("[xmtp] REST API still available without XMTP interface");
+  }
+})();
