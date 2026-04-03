@@ -17,6 +17,12 @@ import {
 } from "@open-wallet-standard/core";
 import { research } from "./pipeline.ts";
 import { reportToMarkdown } from "./report.ts";
+import { handleQuick, quickToText } from "./commands/quick.ts";
+import { handlePnl, pnlToText } from "./commands/pnl.ts";
+import { handleDefi, defiToText } from "./commands/defi.ts";
+import { handleHistory, historyToText } from "./commands/history.ts";
+import { handleNft, nftToText } from "./commands/nft.ts";
+import { handleCompare, compareToText } from "./commands/compare.ts";
 
 const CHAIN = base;
 const USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
@@ -90,9 +96,13 @@ export async function startXmtpAgent(): Promise<Agent> {
     tokenAddress: USDC_CONTRACT,
   });
 
+  // Ignore messages sent before agent started
+  const startedAt = Date.now();
+
   const router = new CommandRouter({ helpCommand: "/help" });
 
   router.command("/research", "Research a wallet address ($0.05 USDC)", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
     const text = ctx.message.content as string;
     console.log(`[xmtp] Received: "${text}"`);
 
@@ -131,8 +141,75 @@ export async function startXmtpAgent(): Promise<Agent> {
     console.log(`[xmtp] Payment request sent for ${address} in conversation ${convId}`);
   });
 
+  router.command("/quick", "Quick portfolio snapshot ($0.01)", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
+    const text = ctx.message.content as string;
+    const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
+    if (!address) { await ctx.conversation.sendText("Usage: /quick 0x<address>"); return; }
+    try {
+      const report = await handleQuick(address);
+      await ctx.conversation.sendText(quickToText(report));
+    } catch (err) { await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
+  });
+
+  router.command("/pnl", "Profit & loss report ($0.02)", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
+    const text = ctx.message.content as string;
+    const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
+    if (!address) { await ctx.conversation.sendText("Usage: /pnl 0x<address>"); return; }
+    try {
+      const report = await handlePnl(address);
+      await ctx.conversation.sendText(pnlToText(report));
+    } catch (err) { await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
+  });
+
+  router.command("/defi", "DeFi positions report ($0.02)", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
+    const text = ctx.message.content as string;
+    const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
+    if (!address) { await ctx.conversation.sendText("Usage: /defi 0x<address>"); return; }
+    try {
+      const report = await handleDefi(address);
+      await ctx.conversation.sendText(defiToText(report));
+    } catch (err) { await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
+  });
+
+  router.command("/history", "Transaction history report ($0.02)", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
+    const text = ctx.message.content as string;
+    const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
+    if (!address) { await ctx.conversation.sendText("Usage: /history 0x<address>"); return; }
+    try {
+      const report = await handleHistory(address);
+      await ctx.conversation.sendText(historyToText(report));
+    } catch (err) { await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
+  });
+
+  router.command("/nft", "NFT portfolio report ($0.02)", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
+    const text = ctx.message.content as string;
+    const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
+    if (!address) { await ctx.conversation.sendText("Usage: /nft 0x<address>"); return; }
+    try {
+      const report = await handleNft(address);
+      await ctx.conversation.sendText(nftToText(report));
+    } catch (err) { await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
+  });
+
+  router.command("/compare", "Compare two wallets ($0.05)", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
+    const text = ctx.message.content as string;
+    const addresses = text.match(/0x[a-fA-F0-9]{40}/g);
+    if (!addresses || addresses.length < 2) { await ctx.conversation.sendText("Usage: /compare 0x<addressA> 0x<addressB>"); return; }
+    try {
+      const report = await handleCompare(addresses[0], addresses[1]);
+      await ctx.conversation.sendText(compareToText(report));
+    } catch (err) { await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
+  });
+
   // Handle payment confirmation
   agent.on("transaction-reference", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
     const { networkId, reference } = ctx.message.content;
     const chainId = hexToNumber(validHex(networkId));
     const convId = ctx.conversation.id;
@@ -164,11 +241,18 @@ export async function startXmtpAgent(): Promise<Agent> {
   });
 
   router.default(async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
     await ctx.conversation.sendText(
-      `👋 OWS Deep Research Service\n\n` +
-      `Send /research 0x<address> to analyze any wallet.\n\n` +
-      `Cost: $${RESEARCH_PRICE} USDC on Base per query.\n` +
-      `I'll request payment, then deliver a full portfolio analysis.`
+      `👋 OWS Intelligence Wire\n\n` +
+      `📊 Analytics:\n` +
+      `  /quick 0x<addr>  — portfolio snapshot ($0.01)\n` +
+      `  /research 0x<addr> — deep research ($0.05)\n` +
+      `  /pnl 0x<addr>  — profit & loss ($0.02)\n` +
+      `  /defi 0x<addr>  — DeFi positions ($0.02)\n` +
+      `  /history 0x<addr> — tx history ($0.02)\n` +
+      `  /nft 0x<addr>  — NFT portfolio ($0.02)\n` +
+      `  /compare 0x<a> 0x<b> — compare wallets ($0.05)\n\n` +
+      `Payments via x402 (USDC on Base, gasless).`
     );
   });
 
