@@ -27,3 +27,16 @@ body {
 }
 
 a { color: inherit; }
+
+/* SKELETON SHIMMER */
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.skel {
+  background: linear-gradient(90deg, var(--sand-1) 25%, var(--sand-2) 50%, var(--sand-1) 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+  border-radius: 2px;
+}

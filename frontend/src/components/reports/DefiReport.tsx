@@ -1,22 +1,25 @@
-import { useRef } from "react";
+import { useRef, useState, useMemo } from "react";
 import type { ReactNode } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 
+interface Position {
+  protocol: string;
+  type: string;
+  asset: string;
+  valueUsd: number;
+  chain: string;
+}
+
 interface DefiData {
   address: string;
-  positions: {
-    protocol: string;
-    type: string;
-    asset: string;
-    valueUsd: number;
-    chain: string;
-  }[];
+  positions: Position[];
   totalDefiUsd: number;
 }
 
 function fmt(n: number): string {
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  const digits = Math.abs(n) < 1 ? 2 : 0;
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: digits });
 }
 
 function shortAddr(a: string): string {
@@ -25,6 +28,7 @@ function shortAddr(a: string): string {
 
 export function DefiReport({ data }: { data: DefiData }): ReactNode {
   const ref = useRef<HTMLDivElement>(null);
+  const [activeChain, setActiveChain] = useState<string | null>(null);
 
   useGSAP(() => {
     const mm = gsap.matchMedia();
@@ -34,28 +38,36 @@ export function DefiReport({ data }: { data: DefiData }): ReactNode {
     });
   }, { scope: ref });
 
-  const { positions, totalDefiUsd, address } = data;
-  const chains = [...new Set(positions.map((p) => p.chain))];
-  const protocols = [...new Set(positions.map((p) => p.protocol))];
+  // Filter out zero-value on frontend too
+  const nonZero = useMemo(() => data.positions.filter((p) => p.valueUsd > 0), [data.positions]);
+  const chains = useMemo(() => [...new Set(nonZero.map((p) => p.chain))], [nonZero]);
+
+  const filtered = useMemo(() => {
+    if (!activeChain) return nonZero;
+    return nonZero.filter((p) => p.chain === activeChain);
+  }, [nonZero, activeChain]);
+
+  const filteredTotal = useMemo(() => filtered.reduce((s, p) => s + p.valueUsd, 0), [filtered]);
+  const protocols = useMemo(() => [...new Set(filtered.map((p) => p.protocol))], [filtered]);
 
   return (
     <div ref={ref}>
       <div className="report-top">
         <div className="report-wallet">
           <h2>
-            {shortAddr(address)} <span className="addr-full">{address}</span>
+            {shortAddr(data.address)} <span className="addr-full">{data.address}</span>
           </h2>
         </div>
       </div>
 
       <div className="stats-row" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
         <div className="stat">
-          <div className="stat-label">Total DeFi Value</div>
-          <div className="stat-value">{fmt(totalDefiUsd)}</div>
+          <div className="stat-label">{activeChain ? `${activeChain} DeFi` : "Total DeFi Value"}</div>
+          <div className="stat-value">{fmt(activeChain ? filteredTotal : data.totalDefiUsd)}</div>
         </div>
         <div className="stat">
           <div className="stat-label">Positions</div>
-          <div className="stat-value">{positions.length}</div>
+          <div className="stat-value">{filtered.length}{activeChain ? ` / ${nonZero.length}` : ""}</div>
         </div>
         <div className="stat">
           <div className="stat-label">Protocols</div>
@@ -65,13 +77,13 @@ export function DefiReport({ data }: { data: DefiData }): ReactNode {
 
       <div className="report-body">
         <div>
-          <h3 className="section-title">DeFi Positions</h3>
-          {positions.length === 0 ? (
-            <div className="empty-state"><p>No DeFi positions found</p></div>
+          <h3 className="section-title">DeFi Positions{activeChain ? ` · ${activeChain}` : ""}</h3>
+          {filtered.length === 0 ? (
+            <div className="empty-state"><p>No DeFi positions{activeChain ? ` on ${activeChain}` : ""}</p></div>
           ) : (
             <ul className="defi-list">
-              {positions.map((pos, i) => (
-                <li key={`${pos.protocol}-${pos.asset}-${i}`} className="defi-item">
+              {filtered.map((pos, i) => (
+                <li key={`${pos.protocol}-${pos.asset}-${pos.chain}-${i}`} className="defi-item">
                   <div>
                     <span className="defi-proto">{pos.protocol}</span>
                     <span className="defi-type"> / {pos.type}</span>
@@ -89,8 +101,18 @@ export function DefiReport({ data }: { data: DefiData }): ReactNode {
             <h3 className="section-title">Chains</h3>
             <div className="chain-row">
               {chains.map((c) => (
-                <span key={c} className="chain-tag">{c}</span>
+                <button
+                  key={c}
+                  className={`chain-tag chain-btn${activeChain === c ? " chain-active" : ""}`}
+                  onClick={() => setActiveChain((prev) => prev === c ? null : c)}
+                  type="button"
+                >
+                  {c}
+                </button>
               ))}
+              {activeChain && (
+                <button className="chain-tag chain-btn chain-clear" onClick={() => setActiveChain(null)} type="button">All</button>
+              )}
             </div>
           </div>
         </div>

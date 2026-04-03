@@ -3,9 +3,7 @@ import "../styles/landing.css";
 import { Nav } from "../components/Nav";
 import { Hero } from "../components/Hero";
 import { CommandsGrid } from "../components/CommandsGrid";
-import { Pipeline } from "../components/Pipeline";
 import { HowItWorks } from "../components/HowItWorks";
-import { PricingTable } from "../components/PricingTable";
 import { Footer } from "../components/Footer";
 
 function Partners(): ReactNode {
@@ -13,6 +11,7 @@ function Partners(): ReactNode {
     <div className="partners">
       <span className="partners-label">Powered by</span>
       <div className="partners-logos">
+        <span>OWS</span>
         <span>Zerion</span>
         <span>OpenRouter</span>
         <span>XMTP</span>
@@ -31,9 +30,7 @@ export function Landing(): ReactNode {
         <Hero />
         <Partners />
         <CommandsGrid />
-        <Pipeline />
         <HowItWorks />
-        <PricingTable />
         <Footer />
       </div>
     </>

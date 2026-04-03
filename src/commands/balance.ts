@@ -26,13 +26,17 @@ export async function handleBalance(
     address = info.address;
   }
 
-  const positions = await fetchPositions(address, "only_simple");
+  const allPositions = await fetchPositions(address, "only_simple");
+  // Filter out dust (< $0.01) and sort by value descending
+  const positions = allPositions
+    .filter((p) => p.valueUsd >= 0.01)
+    .sort((a, b) => b.valueUsd - a.valueUsd);
   const totalUsd = positions.reduce((s, p) => s + p.valueUsd, 0);
 
   return {
     wallet: name,
     address,
-    positions: positions.slice(0, 10),
+    positions: positions.slice(0, 20),
     totalUsd,
   };
 }

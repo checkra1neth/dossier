@@ -20,8 +20,12 @@ export function getPrice(cmd: Command): string {
   return COMMANDS.find((c) => c.cmd === cmd)?.price ?? "$0.05";
 }
 
-export async function query<T>(command: Command, body: Record<string, string>): Promise<T> {
-  const res = await fetch(`/${command}`, {
+// ALL commands go through /api/ — proxy handles payment + correct wallet context
+const FREE_COMMANDS: Command[] = [];
+
+export async function query<T>(command: Command, body: Record<string, unknown>): Promise<T> {
+  const prefix = FREE_COMMANDS.includes(command) ? "" : "/api";
+  const res = await fetch(`${prefix}/${command}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -46,4 +50,31 @@ export async function queryGet<T>(path: string): Promise<T> {
     throw new Error(err.error || `Request failed: ${res.status}`);
   }
   return res.json() as Promise<T>;
+}
+
+export interface OWSWallet {
+  name: string;
+  address: string;
+  connected: boolean;
+}
+
+export async function getActiveWallet(): Promise<OWSWallet> {
+  return queryGet<OWSWallet>("/api/wallet");
+}
+
+export async function listWallets(): Promise<{ wallets: { name: string; address: string }[]; active: string }> {
+  return queryGet("/api/wallets");
+}
+
+export async function connectWallet(wallet: string): Promise<OWSWallet> {
+  const res = await fetch("/api/wallet/connect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ wallet }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || "Failed to connect wallet");
+  }
+  return res.json() as Promise<OWSWallet>;
 }

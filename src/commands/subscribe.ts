@@ -47,10 +47,3 @@ export function handleUnsubscribe(conversationId: string): string {
 
   return `Unsubscribed from daily digest.`;
 }
-
-/**
- * Get all conversation IDs subscribed to the daily digest.
- */
-export function getDigestSubscribers(): string[] {
-  return Array.from(digestSubscribers);
-}

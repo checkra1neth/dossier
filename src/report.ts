@@ -39,5 +39,5 @@ export function reportToMarkdown(report: ResearchReport): string {
     .replace(/^- /gm, "• ")
     .trim();
 
-  return header + positions + `\n📝 ANALYSIS\n${cleanSummary}\n\n🏁 VERDICT: ${analysis.verdict}\n\n— OWS Deep Research Service`;
+  return header + positions + `\n📝 ANALYSIS\n${cleanSummary}\n\n🏁 VERDICT: ${analysis.verdict}\n\n— Dossier`;
 }

@@ -1,24 +1,27 @@
-import { useRef } from "react";
+import { useRef, useState, useMemo } from "react";
 import type { ReactNode } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 
+interface Position {
+  asset: string;
+  name: string;
+  valueUsd: number;
+  quantity: number;
+  chain: string;
+  percentage: number;
+}
+
 interface BalanceData {
   wallet: string;
   address: string;
-  positions: {
-    asset: string;
-    name: string;
-    valueUsd: number;
-    quantity: number;
-    chain: string;
-    percentage: number;
-  }[];
+  positions: Position[];
   totalUsd: number;
 }
 
 function fmt(n: number): string {
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  const digits = Math.abs(n) < 1 ? 6 : Math.abs(n) < 100 ? 2 : 0;
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: digits });
 }
 
 function shortAddr(a: string): string {
@@ -29,6 +32,7 @@ const DOT_COLORS = ["oklch(55% 0.15 250)", "oklch(55% 0.15 155)", "oklch(55% 0.1
 
 export function BalanceReport({ data }: { data: BalanceData }): ReactNode {
   const ref = useRef<HTMLDivElement>(null);
+  const [activeChain, setActiveChain] = useState<string | null>(null);
 
   useGSAP(() => {
     const mm = gsap.matchMedia();
@@ -37,6 +41,19 @@ export function BalanceReport({ data }: { data: BalanceData }): ReactNode {
       gsap.from(".alloc-item", { x: -12, autoAlpha: 0, duration: 0.4, stagger: 0.05, delay: 0.3, ease: "power3.out" });
     });
   }, { scope: ref });
+
+  const chains = useMemo(() => [...new Set(data.positions.map((p) => p.chain))], [data.positions]);
+
+  const filtered = useMemo(() => {
+    if (!activeChain) return data.positions;
+    return data.positions.filter((p) => p.chain === activeChain);
+  }, [data.positions, activeChain]);
+
+  const filteredTotal = useMemo(() => filtered.reduce((s, p) => s + p.valueUsd, 0), [filtered]);
+
+  const handleChainClick = (chain: string): void => {
+    setActiveChain((prev) => prev === chain ? null : chain);
+  };
 
   return (
     <div ref={ref}>
@@ -50,21 +67,21 @@ export function BalanceReport({ data }: { data: BalanceData }): ReactNode {
 
       <div className="stats-row">
         <div className="stat">
-          <div className="stat-label">Total Value</div>
-          <div className="stat-value">{fmt(data.totalUsd)}</div>
+          <div className="stat-label">{activeChain ? `${activeChain} Value` : "Total Value"}</div>
+          <div className="stat-value">{fmt(activeChain ? filteredTotal : data.totalUsd)}</div>
         </div>
         <div className="stat">
           <div className="stat-label">Positions</div>
-          <div className="stat-value">{data.positions.length}</div>
+          <div className="stat-value">{filtered.length}{activeChain ? ` / ${data.positions.length}` : ""}</div>
         </div>
       </div>
 
       <div className="report-body">
         <div>
-          <h3 className="section-title">Positions</h3>
+          <h3 className="section-title">Positions{activeChain ? ` · ${activeChain}` : ""}</h3>
           <ul className="alloc-list">
-            {data.positions.map((pos, i) => (
-              <li key={`${pos.asset}-${pos.chain}`} className="alloc-item">
+            {filtered.map((pos, i) => (
+              <li key={`${pos.asset}-${pos.chain}-${i}`} className="alloc-item">
                 <span className="alloc-asset">
                   <span className="alloc-dot" style={{ background: DOT_COLORS[i % DOT_COLORS.length] }} />
                   {pos.name} ({pos.asset})
@@ -73,6 +90,9 @@ export function BalanceReport({ data }: { data: BalanceData }): ReactNode {
                 <span className="alloc-pct">{pos.percentage.toFixed(1)}%</span>
               </li>
             ))}
+            {filtered.length === 0 && (
+              <li className="alloc-item" style={{ color: "var(--ink-muted)", justifyContent: "center" }}>No positions on this chain</li>
+            )}
           </ul>
         </div>
 
@@ -80,9 +100,21 @@ export function BalanceReport({ data }: { data: BalanceData }): ReactNode {
           <div>
             <h3 className="section-title">Chains</h3>
             <div className="chain-row">
-              {[...new Set(data.positions.map((p) => p.chain))].map((c) => (
-                <span key={c} className="chain-tag">{c}</span>
+              {chains.map((c) => (
+                <button
+                  key={c}
+                  className={`chain-tag chain-btn${activeChain === c ? " chain-active" : ""}`}
+                  onClick={() => handleChainClick(c)}
+                  type="button"
+                >
+                  {c}
+                </button>
               ))}
+              {activeChain && (
+                <button className="chain-tag chain-btn chain-clear" onClick={() => setActiveChain(null)} type="button">
+                  All
+                </button>
+              )}
             </div>
           </div>
         </div>

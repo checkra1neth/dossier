@@ -462,7 +462,7 @@ export async function startXmtpAgent(): Promise<Agent> {
     }
 
     await ctx.conversation.sendText(
-      `OWS Intelligence Wire\n\n` +
+      `Dossier\n\n` +
       `Analytics:\n` +
       `  /quick 0x<addr>  — portfolio snapshot ($0.01)\n` +
       `  /research 0x<addr> — deep research ($0.05)\n` +

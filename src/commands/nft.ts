@@ -1,4 +1,4 @@
-import { fetchNftCollections } from "../services/zerion.ts";
+import { fetchNftCollections, fetchNftPositions } from "../services/zerion.ts";
 import type { NftReport } from "../types.ts";
 
 function usd(v: number): string {
@@ -8,13 +8,16 @@ function usd(v: number): string {
 }
 
 export async function handleNft(address: string): Promise<NftReport> {
-  const collections = await fetchNftCollections(address);
+  const [collections, positions] = await Promise.all([
+    fetchNftCollections(address),
+    fetchNftPositions(address),
+  ]);
   const totalEstimatedUsd = collections.reduce(
     (sum, c) => sum + c.floorPrice,
     0,
   );
 
-  return { address, collections, totalEstimatedUsd };
+  return { address, collections, positions, totalEstimatedUsd };
 }
 
 export function nftToText(report: NftReport): string {

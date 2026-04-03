@@ -42,5 +42,10 @@ export async function research(address: string): Promise<ResearchReport> {
   const analysis = await analyzeWallet(address, data, defiPositions, pnl, transactions);
   console.log(`[pipeline] LLM analysis complete: risk=${analysis.riskLevel}, ${analysis.patterns.length} patterns`);
 
-  return buildReport(address, data, analysis);
+  const report = buildReport(address, data, analysis);
+  report.defi = defiPositions.filter((d) => d.valueUsd > 0.15);
+  report.pnl = pnl;
+  report.transactions = transactions.slice(0, 5);
+  report.portfolio = portfolio;
+  return report;
 }

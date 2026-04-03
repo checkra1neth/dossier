@@ -15,11 +15,15 @@ interface PnlData {
 }
 
 function fmt(n: number): string {
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  const digits = Math.abs(n) < 1 ? 4 : Math.abs(n) < 100 ? 2 : 0;
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: digits });
 }
 
 function fmtPct(n: number): string {
-  return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
+  const clamped = Math.max(-9999, Math.min(9999, n));
+  const abs = Math.abs(clamped);
+  const digits = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
+  return `${n >= 0 ? "+" : ""}${clamped.toFixed(digits)}%`;
 }
 
 function shortAddr(a: string): string {

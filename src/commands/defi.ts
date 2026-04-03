@@ -8,7 +8,9 @@ function usd(v: number): string {
 }
 
 export async function handleDefi(address: string): Promise<DefiReport> {
-  const positions = await fetchDefiPositions(address);
+  const allPositions = await fetchDefiPositions(address);
+  // Filter out dust and zero-value positions
+  const positions = allPositions.filter((p) => p.valueUsd > 0.15);
   const totalDefiUsd = positions.reduce((sum, p) => sum + p.valueUsd, 0);
 
   return { address, positions, totalDefiUsd };

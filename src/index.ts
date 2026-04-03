@@ -28,6 +28,7 @@ import { handleBridge } from "./commands/bridge.ts";
 import { handleSend } from "./commands/send.ts";
 import { getWalletInfo } from "./services/ows.ts";
 import { getWatch } from "./services/webhooks.ts";
+import { apiProxyRouter } from "./api-proxy.ts";
 
 // Prevent server crash on unhandled errors
 process.on("unhandledRejection", (err) => {
@@ -51,7 +52,7 @@ export function setXmtpAgent(agent: { sendMessage: (conversationId: string, text
 
 // Health endpoint
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok", service: "ows-deep-research", uptime: process.uptime() });
+  res.json({ status: "ok", service: "dossier", uptime: process.uptime() });
 });
 
 // ---------------------------------------------------------------------------
@@ -152,6 +153,9 @@ app.post("/webhook", async (req: express.Request, res: express.Response) => {
 
   res.sendStatus(200);
 });
+
+// Dashboard API proxy (OWS wallet pays x402 on behalf of frontend)
+app.use("/api", apiProxyRouter);
 
 // OWS wallet for receiving payments
 const owsWalletName = process.env.OWS_WALLET_NAME || "research-agent";
@@ -656,7 +660,7 @@ const frontendDist = join(__dirname, "..", "frontend", "dist");
 app.use(express.static(frontendDist));
 
 // SPA fallback — React Router handles client-side routing
-app.get("*", (_req, res) => {
+app.get("/{*path}", (_req, res) => {
   res.sendFile(join(frontendDist, "index.html"));
 });
 

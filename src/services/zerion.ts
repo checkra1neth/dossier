@@ -65,6 +65,16 @@ export interface NftCollection {
   chain: string;
 }
 
+export interface NftPosition {
+  name: string;
+  collectionName: string;
+  imageUrl: string | null;
+  collectionIcon: string | null;
+  valueUsd: number;
+  chain: string;
+  tokenId: string;
+}
+
 // ---------------------------------------------------------------------------
 // Internal: API key & auth headers
 // ---------------------------------------------------------------------------
@@ -520,6 +530,49 @@ export async function fetchSwapOffers(params: {
 /**
  * Fetch NFT collections held by a wallet, sorted by floor price descending.
  */
+export async function fetchNftPositions(
+  address: string,
+  limit: number = 20,
+): Promise<NftPosition[]> {
+  const url =
+    `${BASE_URL}/wallets/${address}/nft-positions/` +
+    `?currency=usd` +
+    `&sort=-floor_price` +
+    `&page[size]=${limit}`;
+
+  const json = await fetchJson<{
+    data: {
+      attributes: {
+        nft_info: {
+          name: string;
+          token_id: string;
+          content?: { preview?: { url: string }; detail?: { url: string } };
+        };
+        collection_info: {
+          name: string;
+          content?: { icon?: { url: string } };
+        };
+        value: number | null;
+      };
+      relationships: { chain: { data: { id: string } } };
+    }[];
+  }>(url);
+
+  return json.data.map((p) => {
+    const nft = p.attributes.nft_info;
+    const col = p.attributes.collection_info;
+    return {
+      name: nft.name || `#${nft.token_id.length > 8 ? nft.token_id.slice(0, 8) + "..." : nft.token_id}`,
+      collectionName: col.name,
+      imageUrl: nft.content?.preview?.url ?? nft.content?.detail?.url ?? null,
+      collectionIcon: col.content?.icon?.url ?? null,
+      valueUsd: p.attributes.value ?? 0,
+      chain: p.relationships.chain.data.id,
+      tokenId: nft.token_id,
+    };
+  });
+}
+
 export async function fetchNftCollections(
   address: string,
 ): Promise<NftCollection[]> {

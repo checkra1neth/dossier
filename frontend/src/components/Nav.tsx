@@ -4,11 +4,10 @@ import { Link } from "react-router-dom";
 export function Nav(): ReactNode {
   return (
     <nav className="nav">
-      <a href="#" className="nav-logo">Intelligence Wire</a>
+      <a href="#" className="nav-logo">Dossier</a>
       <div className="nav-r">
         <a href="#commands">Commands</a>
-        <a href="#pipeline">Pipeline</a>
-        <a href="#pricing">Pricing</a>
+        <a href="#how">How it works</a>
         <Link to="/app" className="pill">Launch app</Link>
       </div>
     </nav>

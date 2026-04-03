@@ -8,7 +8,6 @@
 import { execSync } from "node:child_process";
 import {
   getWallet as owsGetWallet,
-  listWallets as owsListWallets,
 } from "@open-wallet-standard/core";
 
 export interface WalletInfo {
@@ -33,21 +32,6 @@ export function getWalletInfo(walletName: string): WalletInfo {
   return { name: walletName, address: evmAccount.address as string };
 }
 
-/**
- * List all OWS wallets with their EVM addresses.
- */
-export function listAllWallets(): WalletInfo[] {
-  const wallets = owsListWallets();
-  return wallets
-    .map((w: { name: string }) => {
-      try {
-        return getWalletInfo(w.name);
-      } catch {
-        return null;
-      }
-    })
-    .filter((w): w is WalletInfo => w !== null);
-}
 
 /**
  * Sign and broadcast a raw transaction via the OWS CLI.
@@ -63,16 +47,3 @@ export function signAndSendTx(
   return result.trim();
 }
 
-/**
- * Sign a raw transaction without broadcasting.
- * Returns the signed transaction hex.
- */
-export function signTx(
-  walletName: string,
-  chain: string,
-  txHex: string,
-): string {
-  const cmd = `ows sign tx --chain ${chain} --wallet "${walletName}" --tx "${txHex}" --no-passphrase 2>&1`;
-  const result = execSync(cmd, { encoding: "utf-8", timeout: 30_000 });
-  return result.trim();
-}

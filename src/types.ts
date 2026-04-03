@@ -5,6 +5,7 @@ import {
   PnlData,
   Transaction,
   NftCollection,
+  NftPosition,
 } from "./services/zerion.ts";
 
 export type {
@@ -14,6 +15,7 @@ export type {
   PnlData,
   Transaction,
   NftCollection,
+  NftPosition,
 };
 
 export interface ZerionData {
@@ -36,6 +38,10 @@ export interface ResearchReport {
   timestamp: number;
   data: ZerionData;
   analysis: Analysis;
+  defi?: DefiPosition[];
+  pnl?: PnlData | null;
+  transactions?: Transaction[];
+  portfolio?: PortfolioData;
 }
 
 export interface QuickReport {
@@ -66,6 +72,7 @@ export interface HistoryReport {
 export interface NftReport {
   address: string;
   collections: NftCollection[];
+  positions: NftPosition[];
   totalEstimatedUsd: number;
 }
 

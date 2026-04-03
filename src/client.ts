@@ -205,7 +205,7 @@ async function main() {
     prompt: "you> ",
   });
 
-  console.log(`🎯 OWS Intelligence Wire. Commands:\n`);
+  console.log(`🎯 Dossier. Commands:\n`);
   console.log(` 📊 Analytics:`);
   console.log(`   /quick 0x<addr>          — portfolio snapshot ($0.01)`);
   console.log(`   /research 0x<addr>       — deep research ($0.05)`);

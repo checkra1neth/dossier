@@ -74,6 +74,16 @@ export function parseSendCommand(text: string): SendRequest | null {
 
 const NATIVE_TOKEN_ADDRESS = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
+const CHAIN_IDS: Record<string, string> = {
+  base: "8453",
+  ethereum: "1",
+  arbitrum: "42161",
+  optimism: "10",
+  polygon: "137",
+  avalanche: "43114",
+  "binance-smart-chain": "56",
+};
+
 export async function handleSend(
   request: SendRequest,
   walletName: string,
@@ -146,20 +156,19 @@ export async function executeSend(
   const { request, fromAddress, token } = result;
   const isNative = token.address.toLowerCase() === NATIVE_TOKEN_ADDRESS;
   const amountWei = parseUnits(request.amount.toString(), token.decimals);
+  const numericChainId = CHAIN_IDS[request.chain] ?? "8453";
 
   let txPayload: Record<string, string>;
 
   if (isNative) {
-    // Native token (ETH) — simple value transfer
     txPayload = {
       from: fromAddress,
       to: request.toAddress,
       value: `0x${amountWei.toString(16)}`,
       data: "0x",
-      chainId: request.chain,
+      chainId: numericChainId,
     };
   } else {
-    // ERC-20 — encode transfer(address, uint256) calldata
     const calldata = encodeFunctionData({
       abi: ERC20_TRANSFER_ABI,
       functionName: "transfer",
@@ -171,7 +180,7 @@ export async function executeSend(
       to: token.address,
       value: "0x0",
       data: calldata,
-      chainId: request.chain,
+      chainId: numericChainId,
     };
   }
 
