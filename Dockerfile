@@ -18,13 +18,16 @@ COPY src/ ./src/
 COPY tsconfig.json ./
 COPY .env.example ./
 
-# Fix nested XMTP node-bindings — remove duplicates, force single copy
-RUN find node_modules -path "*/node_modules/@xmtp/node-bindings" -not -path "node_modules/@xmtp/node-bindings" -type d | \
-    while read nested; do \
-      echo "Removing nested: $nested"; \
+# Flatten ALL nested @xmtp/node-bindings — symlink to top-level copy
+RUN TOP=/app/node_modules/@xmtp/node-bindings && \
+    find node_modules -mindepth 3 -path "*/@xmtp/node-bindings" -type d | while read nested; do \
+      echo "Replacing nested: $nested -> $TOP"; \
       rm -rf "$nested"; \
+      ln -s "$TOP" "$nested"; \
     done
 
 EXPOSE 8080
+
+ENV NODE_PATH=/app/node_modules
 
 CMD ["node", "--import", "tsx", "src/index.ts"]
