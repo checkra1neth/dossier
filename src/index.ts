@@ -29,7 +29,7 @@ import { handleSend } from "./commands/send.ts";
 import { getWalletInfo } from "./services/ows.ts";
 import { getWatch } from "./services/webhooks.ts";
 import { apiProxyRouter } from "./api-proxy.ts";
-import { setupBridge } from "./ws-bridge.ts";
+import { setupBridge, setChatAgent } from "./ws-bridge.ts";
 
 // Prevent server crash on unhandled errors
 process.on("unhandledRejection", (err) => {
@@ -725,6 +725,9 @@ const server = app.listen(port, () => {
       sendMessage: (conversationId: string, text: string) =>
         sendToConversation(agent, conversationId, text),
     });
+
+    // Wire up XMTP agent for dashboard chat relay
+    setChatAgent(agent);
 
     console.log(`[server] XMTP DM interface ready — address: ${agent.address}`);
   } catch (err) {

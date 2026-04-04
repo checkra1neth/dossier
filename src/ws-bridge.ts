@@ -1,6 +1,14 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "node:http";
+import type { Agent } from "@xmtp/agent-sdk";
 import crypto from "node:crypto";
+
+// XMTP agent reference — set from index.ts after agent starts
+let xmtpAgent: Agent | null = null;
+
+export function setChatAgent(agent: Agent): void {
+  xmtpAgent = agent;
+}
 
 interface PendingRequest {
   resolve: (signature: string) => void;
@@ -59,93 +67,98 @@ setInterval(() => {
 }, 30_000);
 
 // ---------------------------------------------------------------------------
-// Chat handler — processes commands directly on the server
+// Chat relay — messages go through XMTP agent with x402 payment
 // ---------------------------------------------------------------------------
-async function handleChatMessage(text: string): Promise<string> {
-  const trimmed = text.trim();
-
-  // Import handlers dynamically to avoid circular deps
-  const { handleQuick, quickToText } = await import("./commands/quick.ts");
-  const { handlePnl, pnlToText } = await import("./commands/pnl.ts");
-  const { handleDefi, defiToText } = await import("./commands/defi.ts");
-  const { handleHistory, historyToText } = await import("./commands/history.ts");
-  const { handleNft, nftToText } = await import("./commands/nft.ts");
-  const { handleCompare, compareToText } = await import("./commands/compare.ts");
-  const { handleBalance, balanceToText } = await import("./commands/balance.ts");
-
-  const addrMatch = trimmed.match(/0x[a-fA-F0-9]{40}/);
-  const addr = addrMatch?.[0] ?? "";
-
-  try {
-    if (trimmed.startsWith("/quick") && addr) {
-      return quickToText(await handleQuick(addr));
-    }
-    if (trimmed.startsWith("/research") && addr) {
-      const { research } = await import("./pipeline.ts");
-      const { reportToMarkdown } = await import("./report.ts");
-      const report = await research(addr);
-      return reportToMarkdown(report);
-    }
-    if (trimmed.startsWith("/pnl") && addr) {
-      return pnlToText(await handlePnl(addr));
-    }
-    if (trimmed.startsWith("/defi") && addr) {
-      return defiToText(await handleDefi(addr));
-    }
-    if (trimmed.startsWith("/history") && addr) {
-      return historyToText(await handleHistory(addr));
-    }
-    if (trimmed.startsWith("/nft") && addr) {
-      return nftToText(await handleNft(addr));
-    }
-    if (trimmed.startsWith("/compare")) {
-      const addrs = trimmed.match(/0x[a-fA-F0-9]{40}/g);
-      if (addrs && addrs.length >= 2) {
-        return compareToText(await handleCompare(addrs[0], addrs[1]));
-      }
-      return "Usage: /compare 0x<addr1> 0x<addr2>";
-    }
-    if (trimmed.startsWith("/balance")) {
-      const walletOrAddr = addr || process.env.OWS_WALLET_NAME || "research-agent";
-      return balanceToText(await handleBalance(walletOrAddr));
-    }
-    if (trimmed === "/help" || trimmed === "help") {
-      return (
-        "Dossier Commands:\n\n" +
-        "/quick 0x<addr> — portfolio snapshot\n" +
-        "/research 0x<addr> — deep AI report\n" +
-        "/pnl 0x<addr> — profit & loss\n" +
-        "/defi 0x<addr> — DeFi positions\n" +
-        "/history 0x<addr> — transactions\n" +
-        "/nft 0x<addr> — NFT holdings\n" +
-        "/compare 0x<a> 0x<b> — compare wallets\n" +
-        "/balance — wallet balance"
-      );
-    }
-    return 'Unknown command. Type /help for available commands.';
-  } catch (err) {
-    return `Error: ${err instanceof Error ? err.message : String(err)}`;
-  }
-}
 
 export function setupBridge(server: Server): void {
   const wss = new WebSocketServer({ noServer: true });
   const chatWss = new WebSocketServer({ noServer: true });
 
-  // Chat WebSocket connections
-  chatWss.on("connection", (ws) => {
-    console.log("[chat] Client connected");
-    ws.on("message", async (raw) => {
-      let msg: { type: string; text?: string };
-      try { msg = JSON.parse(raw.toString()); } catch { return; }
+  // Chat WebSocket — relay messages through XMTP agent
+  chatWss.on("connection", async (ws, req) => {
+    const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+    const bridgeSessionId = url.searchParams.get("session");
 
-      if (msg.type === "message" && msg.text) {
-        console.log(`[chat] Command: ${msg.text.slice(0, 50)}`);
-        const response = await handleChatMessage(msg.text);
-        send(ws, { type: "message", id: `agent_${Date.now()}`, sender: "agent", text: response });
-      }
-    });
-    ws.on("close", () => { console.log("[chat] Client disconnected"); });
+    if (!xmtpAgent) {
+      send(ws, { type: "error", error: "XMTP agent not available" });
+      ws.close();
+      return;
+    }
+
+    // Get bridge session to know the user's address
+    const bridgeSession = bridgeSessionId ? getSession(bridgeSessionId) : null;
+    const userAddress = bridgeSession?.address;
+    if (!userAddress) {
+      send(ws, { type: "error", error: "Connect OWS wallet first" });
+      ws.close();
+      return;
+    }
+
+    console.log(`[chat] XMTP relay for ${userAddress.slice(0, 8)}...`);
+
+    // Create DM conversation with the user's address through the agent
+    let conversationId: string | null = null;
+
+    try {
+      const dm = await xmtpAgent.createDmWithAddress(userAddress.toLowerCase() as `0x${string}`);
+      conversationId = dm.id;
+      console.log(`[chat] XMTP DM created: ${conversationId}`);
+
+      const agentAddress = xmtpAgent.address;
+
+      // Load recent message history
+      const history = await dm.messages({ limit: 20 });
+      const historyMsgs = history.map((m: { id: string; senderAddress?: string; content: unknown; sentAtNs?: bigint }) => ({
+        id: m.id,
+        sender: m.senderAddress === agentAddress ? "agent" : "user",
+        text: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+        time: new Date(m.sentAtNs ? Number(m.sentAtNs) / 1_000_000 : Date.now()).toISOString(),
+      }));
+      send(ws, { type: "history", messages: historyMsgs });
+
+      // Stream new messages from this DM
+      const stream = await dm.stream();
+      const streamReader = (async () => {
+        for await (const msg of stream) {
+          // Only forward agent's responses (not the user's own messages)
+          const content = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
+          send(ws, {
+            type: "message",
+            id: msg.id,
+            sender: (msg as { senderAddress?: string }).senderAddress === agentAddress ? "agent" : "user",
+            text: content,
+          });
+        }
+      })();
+
+      ws.on("close", () => {
+        console.log("[chat] Client disconnected, ending XMTP stream");
+        stream.return().catch(() => {});
+      });
+
+      // Handle incoming messages from browser — send through XMTP
+      ws.on("message", async (raw) => {
+        let msg: { type: string; text?: string };
+        try { msg = JSON.parse(raw.toString()); } catch { return; }
+
+        if (msg.type === "message" && msg.text) {
+          console.log(`[chat] XMTP relay: ${msg.text.slice(0, 50)}`);
+          try {
+            await dm.sendText(msg.text);
+          } catch (err) {
+            send(ws, { type: "error", error: (err as Error).message });
+          }
+        }
+      });
+
+      // Keep reference to avoid GC
+      void streamReader;
+
+    } catch (err) {
+      console.error("[chat] XMTP DM setup failed:", (err as Error).message);
+      send(ws, { type: "error", error: `XMTP setup failed: ${(err as Error).message}` });
+      ws.close();
+    }
   });
 
   server.on("upgrade", (req, socket, head) => {
