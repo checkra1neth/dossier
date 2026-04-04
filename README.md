@@ -477,6 +477,83 @@ The dashboard bypasses this for the user — the API proxy (`/api/*`) uses the s
 
 ---
 
+## OWS → Browser Bridge (dossier-connect)
+
+The dashboard lets anyone connect their local OWS wallet to the browser — no extensions, no seed phrases in the browser, no private keys leaving your machine.
+
+**Install nothing. Just run:**
+
+```bash
+npx dossier-connect <session-code>
+```
+
+[![npm](https://img.shields.io/npm/v/dossier-connect)](https://www.npmjs.com/package/dossier-connect)
+
+### How the Bridge Works
+
+```
+┌──────────┐        WebSocket         ┌──────────────┐        WebSocket        ┌───────────────┐
+│  Browser  │◄═══════════════════════►│  Dossier      │◄══════════════════════►│  dossier-     │
+│  (React)  │   session: abc123       │  Server       │   session: abc123      │  connect      │
+│           │   role: browser         │  (relay only) │   role: signer         │  (your terminal)│
+└──────────┘                          └──────────────┘                         └───────────────┘
+                                            │                                        │
+                                       Never sees                              OWS wallet
+                                       private keys                            signs locally
+```
+
+1. Dashboard generates a 6-character session code
+2. User runs `npx dossier-connect <code>` — CLI opens WebSocket to the server
+3. CLI sends wallet address → server relays `paired` event to browser
+4. When user clicks a paid command → server sends `sign_request` through the relay
+5. CLI signs the x402 payment locally via OWS SDK → sends `sign_response` back
+6. Server attaches signature, executes the request, returns result to browser
+
+**Three signing methods supported:**
+- `x402Payment` — full `ows pay request` execution (gasless EIP-3009)
+- `signMessage` — raw message signing (used for XMTP identity)
+- `signTypedData` — EIP-712 typed data signing
+
+### Security
+
+- Private keys **never leave your machine** — the server is a dumb relay
+- Session codes are generated with `crypto.getRandomValues()` (CSPRNG)
+- Unpaired sessions expire after 5 minutes
+- Session persists across page refreshes (stored in `sessionStorage`)
+
+---
+
+## Full Payment Pipeline: OWS → x402 → XMTP
+
+Dossier chains three open protocols into a single agent-native payment flow:
+
+```
+┌─────────┐     ┌─────────┐     ┌─────────┐     ┌──────────┐     ┌─────────┐
+│   OWS   │────►│  x402   │────►│   CDP   │────►│  Dossier │────►│  XMTP   │
+│ Wallet  │     │ Payment │     │Facilitator│    │  Server  │     │  Agent  │
+│ (local) │     │ (HTTP)  │     │(on-chain)│     │ (API)    │     │  (E2E)  │
+└─────────┘     └─────────┘     └──────────┘     └──────────┘     └─────────┘
+   signs          EIP-3009         verifies         executes        delivers
+   locally        gasless          on Base           query          encrypted
+```
+
+**Step by step:**
+
+1. **OWS wallet** (local CLI) holds the user's keys — signs everything locally
+2. **x402 protocol** wraps the payment as an HTTP header — `EIP-3009 TransferWithAuthorization` (gasless, no ETH needed)
+3. **CDP Facilitator** (Coinbase) verifies the signature on-chain and settles USDC on Base
+4. **Dossier server** receives payment confirmation → calls Zerion API + OpenRouter LLM → generates report
+5. **XMTP agent** delivers the report as an end-to-end encrypted DM (or via REST/dashboard)
+
+**Why this matters:**
+- **No gas** — EIP-3009 means the user only needs USDC, not ETH
+- **No custody** — server never touches private keys
+- **No accounts** — wallet address is your identity (via OWS + XMTP)
+- **Micropayments** — $0.01 per query, settled on-chain, no subscriptions
+- **Privacy** — XMTP messages are E2E encrypted, server can't read chat history
+
+---
+
 ## OWS Wallet Integration
 
 [Open Wallet Standard](https://github.com/open-wallet-standard/ows) provides:
