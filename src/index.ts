@@ -693,6 +693,30 @@ const server = app.listen(port, () => {
 // Start XMTP agent (dynamic import to avoid crashing if native bindings fail)
 (async () => {
   try {
+    // Pre-load native bindings to diagnose loading issues
+    try {
+      const mod = await import("node:module");
+      const req = mod.default.createRequire(import.meta.url);
+      const bindingsPath = req.resolve("@xmtp/node-bindings");
+      console.log(`[xmtp] node-bindings resolved to: ${bindingsPath}`);
+      req(bindingsPath);
+      console.log("[xmtp] Native bindings loaded successfully");
+    } catch (preErr) {
+      console.warn("[xmtp] Pre-load check failed:", (preErr as Error).message);
+      try {
+        const mod = await import("node:module");
+        const path = await import("node:path");
+        const req = mod.default.createRequire(import.meta.url);
+        const pkgDir = path.dirname(req.resolve("@xmtp/node-bindings/package.json"));
+        const direct = path.join(pkgDir, "dist", "bindings_node.linux-x64-gnu.node");
+        console.log(`[xmtp] Trying direct load: ${direct}`);
+        req(direct);
+        console.log("[xmtp] Direct load OK");
+      } catch (directErr) {
+        console.warn("[xmtp] Direct load failed:", (directErr as Error).message);
+      }
+    }
+
     const { startXmtpAgent, sendToConversation } = await import("./xmtp.ts");
     const agent = await startXmtpAgent();
 
