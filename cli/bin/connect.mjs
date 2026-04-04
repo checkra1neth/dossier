@@ -4,6 +4,7 @@ import WebSocket from "ws";
 import { execSync } from "node:child_process";
 import {
   getWallet as owsGetWallet,
+  signMessage as owsSignMessage,
   signTypedData as owsSignTypedData,
   listWallets as owsListWallets,
   createWallet as owsCreateWallet,
@@ -145,10 +146,17 @@ function connect(sessionCode, walletName, host) {
 
     if (msg.type === "sign_request" && msg.id && msg.params) {
       const method = msg.method || "unknown";
-      const label =
-        msg.params.description || msg.params.price
-          ? `x402 payment $${msg.params.price} USDC for /${msg.params.command}`
-          : method;
+
+      let label;
+      if (method === "x402Payment") {
+        label = `x402 payment $${msg.params.price} USDC for /${msg.params.command}`;
+      } else if (method === "signMessage") {
+        label = msg.params.description || "sign message";
+      } else if (method === "signTypedData") {
+        label = msg.params.description || "sign typed data";
+      } else {
+        label = msg.params.description || method;
+      }
 
       process.stdout.write(`\x1b[33m🔐 ${label}\x1b[0m\n`);
 
@@ -182,6 +190,18 @@ function connect(sessionCode, walletName, host) {
               `   \x1b[31m❌ Failed: ${result.trim().split("\n")[0]}\x1b[0m\n`,
             );
           }
+        } else if (method === "signMessage") {
+          const result = owsSignMessage(walletName, "evm", msg.params.message);
+          const sigHex = result.signature.startsWith("0x") ? result.signature : `0x${result.signature}`;
+          let sig = sigHex;
+          if (sig.length === 130) {
+            const v = (result.recoveryId ?? 0) + 27;
+            sig = `${sig}${v.toString(16).padStart(2, "0")}`;
+          }
+          ws.send(
+            JSON.stringify({ type: "sign_response", id: msg.id, signature: sig }),
+          );
+          console.log(`   \x1b[32m✅ Signed\x1b[0m\n`);
         } else {
           const signature = signTypedData(walletName, msg.params);
           ws.send(
