@@ -262,11 +262,17 @@ export function Dashboard(): ReactNode {
                   <div className="d-wi-row"><span>Status</span><span className="d-bridge-ok">Connected via bridge</span></div>
                 </div>
               ) : (
-                <div className="d-bridge-pair">
+                <div className="d-bridge-pair" onClick={(e) => e.stopPropagation()}>
                   <p className="d-bridge-label">Run in your terminal:</p>
                   <button
                     className="d-bridge-cmd"
-                    onClick={() => navigator.clipboard.writeText(bridge.connectCommand)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigator.clipboard.writeText(bridge.connectCommand);
+                      const btn = e.currentTarget;
+                      btn.textContent = "Copied!";
+                      setTimeout(() => { btn.textContent = bridge.connectCommand; }, 1500);
+                    }}
                     type="button"
                     title="Click to copy"
                   >
