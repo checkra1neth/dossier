@@ -24,7 +24,9 @@ import { getSession, requestSignature } from "./ws-bridge.ts";
 
 const router = express.Router();
 const SERVER_URL = process.env.SERVER_URL || `http://localhost:${process.env.PORT || "4000"}`;
-const PUBLIC_URL = process.env.PUBLIC_URL || SERVER_URL;
+const PUBLIC_URL = process.env.PUBLIC_URL
+  || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null)
+  || SERVER_URL;
 let activeWallet = process.env.OWS_CLIENT_WALLET || "client-researcher";
 const owsServerWallet = process.env.OWS_WALLET_NAME || "research-agent";
 
