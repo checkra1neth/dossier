@@ -24,6 +24,7 @@ import { getSession, requestSignature } from "./ws-bridge.ts";
 
 const router = express.Router();
 const SERVER_URL = process.env.SERVER_URL || `http://localhost:${process.env.PORT || "4000"}`;
+const PUBLIC_URL = process.env.PUBLIC_URL || SERVER_URL;
 let activeWallet = process.env.OWS_CLIENT_WALLET || "client-researcher";
 const owsServerWallet = process.env.OWS_WALLET_NAME || "research-agent";
 
@@ -90,7 +91,7 @@ async function doBridgeX402Payment(sessionId: string, cmd: string, body?: Record
       command: cmd,
       price,
       body: body ?? {},
-      serverUrl: SERVER_URL,
+      serverUrl: PUBLIC_URL,
     });
     console.log(`[x402-bridge] /${cmd} $${price} — signed by remote wallet`);
     return true;
