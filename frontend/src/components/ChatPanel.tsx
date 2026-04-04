@@ -57,21 +57,29 @@ export function ChatPanel({ bridge }: ChatPanelProps): ReactNode {
           signMessage: bridge.signMessage,
         };
 
+        console.log("[xmtp-chat] Creating client...");
         const client = await Client.create(signer, {
           env: XMTP_ENV,
         } as Parameters<typeof Client.create>[1]);
 
         if (cancelled) { client.close(); return; }
         clientRef.current = client;
+        console.log("[xmtp-chat] Client ready, inboxId:", client.inboxId);
+
+        // Sync conversations from network
+        console.log("[xmtp-chat] Syncing conversations...");
+        await client.conversations.sync();
 
         // Create or find DM with agent
+        console.log("[xmtp-chat] Creating DM with agent:", AGENT_ADDRESS);
         const dm = await client.conversations.createDmWithIdentifier({
           identifier: AGENT_ADDRESS.toLowerCase(),
           identifierKind: IdentifierKind.Ethereum,
         });
 
         if (cancelled) { client.close(); return; }
-        dmRef.current = dm as Dm<[]>;
+        dmRef.current = dm;
+        console.log("[xmtp-chat] DM created, id:", dm.id);
 
         // Load message history
         const history = await dm.messages({ limit: BigInt(50) });
@@ -104,6 +112,7 @@ export function ChatPanel({ bridge }: ChatPanelProps): ReactNode {
 
         setXmtpStatus("ready");
       } catch (err) {
+        console.error("[xmtp-chat] Error:", err);
         if (!cancelled) {
           setXmtpStatus("error");
           setError(err instanceof Error ? err.message : "XMTP connection failed");
