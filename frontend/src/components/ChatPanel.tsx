@@ -1,11 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { ReactNode, FormEvent } from "react";
-import { Client, IdentifierKind } from "@xmtp/browser-sdk";
-import type { Dm, DecodedMessage } from "@xmtp/browser-sdk";
 import type { BridgeState } from "../hooks/useBridge";
-
-const AGENT_ADDRESS = "0x0FA241E47b1F1Be40c20e84B3BCF8022537eDf86";
-const XMTP_ENV = "dev" as const;
 
 interface ChatMessage {
   id: string;
@@ -16,19 +11,16 @@ interface ChatMessage {
 
 interface ChatPanelProps {
   bridge: BridgeState;
+  onClose: () => void;
 }
 
-export function ChatPanel({ bridge }: ChatPanelProps): ReactNode {
+export function ChatPanel({ bridge, onClose }: ChatPanelProps): ReactNode {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [xmtpStatus, setXmtpStatus] = useState<"idle" | "connecting" | "ready" | "error">("idle");
+  const [status, setStatus] = useState<"connecting" | "ready" | "error">("connecting");
   const [error, setError] = useState<string | null>(null);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const clientRef = useRef<Client<any> | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const dmRef = useRef<Dm<any> | null>(null);
-  const streamRef = useRef<{ end: () => Promise<unknown> } | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = useCallback(() => {
@@ -37,126 +29,91 @@ export function ChatPanel({ bridge }: ChatPanelProps): ReactNode {
 
   useEffect(scrollToBottom, [messages, scrollToBottom]);
 
-  // Initialize XMTP client when bridge connects
+  // Connect to chat WebSocket
   useEffect(() => {
-    if (bridge.status !== "connected" || !bridge.address || xmtpStatus !== "idle") return;
+    if (bridge.status !== "connected") return;
 
-    let cancelled = false;
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const url = `${proto}//${window.location.host}/ws/chat?session=${bridge.sessionId}`;
+    const ws = new WebSocket(url);
+    wsRef.current = ws;
 
-    async function initXmtp(): Promise<void> {
-      setXmtpStatus("connecting");
-      setError(null);
-
-      try {
-        const signer = {
-          type: "EOA" as const,
-          getIdentifier: () => ({
-            identifier: bridge.address!.toLowerCase(),
-            identifierKind: IdentifierKind.Ethereum,
-          }),
-          signMessage: bridge.signMessage,
-        };
-
-        console.log("[xmtp-chat] Creating client...");
-        const client = await Client.create(signer, {
-          env: XMTP_ENV,
-          disableDeviceSync: true,
-          disableAutoRegister: true,
-        } as Parameters<typeof Client.create>[1]);
-
-        // Register manually if needed (first time only)
-        if (!client.isReady) {
-          console.log("[xmtp-chat] Registering identity...");
-          await client.register();
-        }
-
-        if (cancelled) { client.close(); return; }
-        clientRef.current = client;
-        console.log("[xmtp-chat] Client ready, inboxId:", client.inboxId);
-
-        // Sync conversations from network
-        console.log("[xmtp-chat] Syncing conversations...");
-        await client.conversations.sync();
-
-        // Create or find DM with agent
-        console.log("[xmtp-chat] Creating DM with agent:", AGENT_ADDRESS);
-        const dm = await client.conversations.createDmWithIdentifier({
-          identifier: AGENT_ADDRESS.toLowerCase(),
-          identifierKind: IdentifierKind.Ethereum,
-        });
-
-        if (cancelled) { client.close(); return; }
-        dmRef.current = dm;
-        console.log("[xmtp-chat] DM created, id:", dm.id);
-
-        // Load message history
-        const history = await dm.messages({ limit: BigInt(50) });
-        const clientInboxId = client.inboxId;
-
-        const mapped: ChatMessage[] = history.map((m: DecodedMessage) => ({
-          id: m.id,
-          sender: m.senderInboxId === clientInboxId ? "user" as const : "agent" as const,
-          text: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-          time: new Date(m.sentAtNs ? Number(m.sentAtNs) / 1_000_000 : Date.now()),
-        }));
-        setMessages(mapped);
-
-        // Stream new messages
-        const stream = await dm.stream({
-          onValue: (msg: DecodedMessage) => {
-            const chatMsg: ChatMessage = {
-              id: msg.id,
-              sender: msg.senderInboxId === clientInboxId ? "user" : "agent",
-              text: typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content),
-              time: new Date(msg.sentAtNs ? Number(msg.sentAtNs) / 1_000_000 : Date.now()),
-            };
-            setMessages((prev) => {
-              if (prev.some((m) => m.id === chatMsg.id)) return prev;
-              return [...prev, chatMsg];
-            });
-          },
-        });
-        streamRef.current = stream;
-
-        setXmtpStatus("ready");
-      } catch (err) {
-        console.error("[xmtp-chat] Error:", err);
-        if (!cancelled) {
-          setXmtpStatus("error");
-          setError(err instanceof Error ? err.message : "XMTP connection failed");
-        }
-      }
-    }
-
-    initXmtp();
-    return () => { cancelled = true; };
-  }, [bridge.status, bridge.address, bridge.signMessage, xmtpStatus]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      streamRef.current?.end();
-      clientRef.current?.close();
+    ws.onopen = () => {
+      setStatus("ready");
     };
-  }, []);
 
-  const handleSend = useCallback(async (e: FormEvent) => {
+    ws.onmessage = (e) => {
+      let msg: { type: string; id?: string; text?: string; sender?: string; error?: string };
+      try { msg = JSON.parse(e.data); } catch { return; }
+
+      if (msg.type === "message" && msg.text) {
+        setMessages((prev) => {
+          const chatMsg: ChatMessage = {
+            id: msg.id || `msg_${Date.now()}`,
+            sender: (msg.sender === "user" ? "user" : "agent") as "user" | "agent",
+            text: msg.text!,
+            time: new Date(),
+          };
+          if (prev.some((m) => m.id === chatMsg.id)) return prev;
+          return [...prev, chatMsg];
+        });
+      }
+
+      if (msg.type === "error") {
+        setError(msg.error || "Unknown error");
+      }
+
+      if (msg.type === "history" && Array.isArray((msg as unknown as { messages: unknown[] }).messages)) {
+        const history = (msg as unknown as { messages: { id: string; sender: string; text: string; time: string }[] }).messages;
+        setMessages(history.map((m) => ({
+          id: m.id,
+          sender: m.sender === "user" ? "user" as const : "agent" as const,
+          text: m.text,
+          time: new Date(m.time),
+        })));
+      }
+    };
+
+    ws.onclose = () => {
+      setStatus("error");
+    };
+
+    ws.onerror = () => {
+      setStatus("error");
+      setError("Chat connection failed");
+    };
+
+    return () => {
+      ws.close();
+      wsRef.current = null;
+    };
+  }, [bridge.status, bridge.sessionId]);
+
+  const handleSend = useCallback((e: FormEvent) => {
     e.preventDefault();
     const text = input.trim();
-    if (!text || !dmRef.current) return;
+    if (!text || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
     setInput("");
 
-    try {
-      await dmRef.current.sendText(text);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send");
-    }
+    const id = `usr_${Date.now()}`;
+    // Optimistic UI — show user message immediately
+    setMessages((prev) => [...prev, {
+      id,
+      sender: "user",
+      text,
+      time: new Date(),
+    }]);
+
+    wsRef.current.send(JSON.stringify({ type: "message", text }));
   }, [input]);
 
   if (bridge.status !== "connected") {
     return (
       <div className="chat-panel">
-        <div className="chat-header">XMTP Chat</div>
+        <div className="chat-header">
+          <span>XMTP Chat</span>
+          <button className="chat-close" onClick={onClose} type="button">x</button>
+        </div>
         <div className="chat-empty">
           Connect your OWS wallet to start chatting with the agent.
         </div>
@@ -168,18 +125,20 @@ export function ChatPanel({ bridge }: ChatPanelProps): ReactNode {
     <div className="chat-panel">
       <div className="chat-header">
         <span>XMTP Chat</span>
-        <span className={`chat-status ${xmtpStatus}`}>
-          {xmtpStatus === "connecting" && "Connecting..."}
-          {xmtpStatus === "ready" && "E2E Encrypted"}
-          {xmtpStatus === "error" && "Error"}
-          {xmtpStatus === "idle" && "Initializing..."}
-        </span>
+        <div className="chat-header-r">
+          <span className={`chat-status ${status}`}>
+            {status === "connecting" && "Connecting..."}
+            {status === "ready" && "Connected"}
+            {status === "error" && "Disconnected"}
+          </span>
+          <button className="chat-close" onClick={onClose} type="button">x</button>
+        </div>
       </div>
 
       {error && <div className="chat-error">{error}</div>}
 
       <div className="chat-messages">
-        {messages.length === 0 && xmtpStatus === "ready" && (
+        {messages.length === 0 && status === "ready" && (
           <div className="chat-hint">
             Send a command to the agent, e.g. <code>/quick 0xd8dA...96045</code>
           </div>
@@ -201,10 +160,10 @@ export function ChatPanel({ bridge }: ChatPanelProps): ReactNode {
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={xmtpStatus === "ready" ? "Type a command..." : "Connecting to XMTP..."}
-          disabled={xmtpStatus !== "ready"}
+          placeholder={status === "ready" ? "Type a command..." : "Connecting..."}
+          disabled={status !== "ready"}
         />
-        <button type="submit" disabled={xmtpStatus !== "ready" || !input.trim()}>Send</button>
+        <button type="submit" disabled={status !== "ready" || !input.trim()}>Send</button>
       </form>
     </div>
   );

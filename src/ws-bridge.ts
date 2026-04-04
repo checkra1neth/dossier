@@ -58,11 +58,104 @@ setInterval(() => {
   }
 }, 30_000);
 
+// ---------------------------------------------------------------------------
+// Chat handler — processes commands directly on the server
+// ---------------------------------------------------------------------------
+async function handleChatMessage(text: string): Promise<string> {
+  const trimmed = text.trim();
+
+  // Import handlers dynamically to avoid circular deps
+  const { handleQuick, quickToText } = await import("./commands/quick.ts");
+  const { handlePnl, pnlToText } = await import("./commands/pnl.ts");
+  const { handleDefi, defiToText } = await import("./commands/defi.ts");
+  const { handleHistory, historyToText } = await import("./commands/history.ts");
+  const { handleNft, nftToText } = await import("./commands/nft.ts");
+  const { handleCompare, compareToText } = await import("./commands/compare.ts");
+  const { handleBalance, balanceToText } = await import("./commands/balance.ts");
+
+  const addrMatch = trimmed.match(/0x[a-fA-F0-9]{40}/);
+  const addr = addrMatch?.[0] ?? "";
+
+  try {
+    if (trimmed.startsWith("/quick") && addr) {
+      return quickToText(await handleQuick(addr));
+    }
+    if (trimmed.startsWith("/research") && addr) {
+      const { research } = await import("./pipeline.ts");
+      const { reportToMarkdown } = await import("./report.ts");
+      const report = await research(addr);
+      return reportToMarkdown(report);
+    }
+    if (trimmed.startsWith("/pnl") && addr) {
+      return pnlToText(await handlePnl(addr));
+    }
+    if (trimmed.startsWith("/defi") && addr) {
+      return defiToText(await handleDefi(addr));
+    }
+    if (trimmed.startsWith("/history") && addr) {
+      return historyToText(await handleHistory(addr));
+    }
+    if (trimmed.startsWith("/nft") && addr) {
+      return nftToText(await handleNft(addr));
+    }
+    if (trimmed.startsWith("/compare")) {
+      const addrs = trimmed.match(/0x[a-fA-F0-9]{40}/g);
+      if (addrs && addrs.length >= 2) {
+        return compareToText(await handleCompare(addrs[0], addrs[1]));
+      }
+      return "Usage: /compare 0x<addr1> 0x<addr2>";
+    }
+    if (trimmed.startsWith("/balance")) {
+      const walletOrAddr = addr || process.env.OWS_WALLET_NAME || "research-agent";
+      return balanceToText(await handleBalance(walletOrAddr));
+    }
+    if (trimmed === "/help" || trimmed === "help") {
+      return (
+        "Dossier Commands:\n\n" +
+        "/quick 0x<addr> — portfolio snapshot\n" +
+        "/research 0x<addr> — deep AI report\n" +
+        "/pnl 0x<addr> — profit & loss\n" +
+        "/defi 0x<addr> — DeFi positions\n" +
+        "/history 0x<addr> — transactions\n" +
+        "/nft 0x<addr> — NFT holdings\n" +
+        "/compare 0x<a> 0x<b> — compare wallets\n" +
+        "/balance — wallet balance"
+      );
+    }
+    return 'Unknown command. Type /help for available commands.';
+  } catch (err) {
+    return `Error: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
 export function setupBridge(server: Server): void {
   const wss = new WebSocketServer({ noServer: true });
+  const chatWss = new WebSocketServer({ noServer: true });
+
+  // Chat WebSocket connections
+  chatWss.on("connection", (ws) => {
+    console.log("[chat] Client connected");
+    ws.on("message", async (raw) => {
+      let msg: { type: string; text?: string };
+      try { msg = JSON.parse(raw.toString()); } catch { return; }
+
+      if (msg.type === "message" && msg.text) {
+        console.log(`[chat] Command: ${msg.text.slice(0, 50)}`);
+        const response = await handleChatMessage(msg.text);
+        send(ws, { type: "message", id: `agent_${Date.now()}`, sender: "agent", text: response });
+      }
+    });
+    ws.on("close", () => { console.log("[chat] Client disconnected"); });
+  });
 
   server.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+
+    if (url.pathname === "/ws/chat") {
+      chatWss.handleUpgrade(req, socket, head, (ws) => { chatWss.emit("connection", ws, req); });
+      return;
+    }
+
     if (url.pathname !== "/ws") {
       socket.destroy();
       return;

@@ -392,6 +392,9 @@ table td { padding: 11px 0; font-size: 0.84rem; border-bottom: 1px solid oklch(9
   padding: 12px 16px; border-bottom: 1px solid var(--sand-2);
   font-weight: 600; font-size: 0.82rem;
 }
+.chat-header-r { display: flex; align-items: center; gap: 8px; }
+.chat-close { background: none; border: none; cursor: pointer; font-size: 1rem; color: var(--ink-3); padding: 0 2px; line-height: 1; }
+.chat-close:hover { color: var(--ink); }
 .chat-status { font-size: 0.65rem; font-weight: 500; padding: 3px 8px; border-radius: 10px; }
 .chat-status.ready { background: oklch(90% 0.08 145); color: oklch(35% 0.12 145); }
 .chat-status.connecting { background: oklch(92% 0.06 80); color: oklch(45% 0.1 80); }
