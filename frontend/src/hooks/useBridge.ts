@@ -160,7 +160,7 @@ export function useBridge(): BridgeState {
     });
   }, []);
 
-  const connectCommand = `npm run bridge ${sessionId}`;
+  const connectCommand = `npx dossier-connect ${sessionId}`;
 
   return { sessionId, status, address, name, connectCommand, signMessage };
 }
