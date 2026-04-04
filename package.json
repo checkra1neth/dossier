@@ -9,8 +9,9 @@
   "scripts": {
     "dev": "npx tsx src/index.ts",
     "client": "npx tsx src/client.ts",
-    "build": "cd frontend && npm install && npm run build",
-    "start": "node --import tsx src/index.ts",
+    "build": "npm run build:server && cd frontend && npm install && npm run build",
+    "build:server": "npx esbuild src/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/index.mjs --external:@xmtp/node-bindings --external:@xmtp/agent-sdk --external:@xmtp/node-sdk --external:@xmtp/content-type-primitives --external:@open-wallet-standard/core --external:@coinbase/cdp-sdk --external:@x402/core --external:@x402/evm --external:@x402/express --external:@x402/fetch --external:express --external:dotenv --external:viem --external:ws",
+    "start": "node dist/index.mjs",
     "build:frontend": "cd frontend && npm run build",
     "bridge": "npx tsx src/bridge.ts"
   },
@@ -32,6 +33,7 @@
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
+    "esbuild": "^0.28.0",
     "typescript": "^5.7.0"
   }
 }
