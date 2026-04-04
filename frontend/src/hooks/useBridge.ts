@@ -26,7 +26,13 @@ function generateSessionId(): string {
 let reqCounter = 0;
 
 export function useBridge(): BridgeState {
-  const [sessionId] = useState(() => generateSessionId());
+  const [sessionId] = useState(() => {
+    const stored = sessionStorage.getItem("bridge-session");
+    if (stored) return stored;
+    const id = generateSessionId();
+    sessionStorage.setItem("bridge-session", id);
+    return id;
+  });
   const [status, setStatus] = useState<BridgeStatus>("waiting");
   const [address, setAddress] = useState<string | null>(null);
   const [name, setName] = useState<string | null>(null);
