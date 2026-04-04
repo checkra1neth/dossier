@@ -108,25 +108,28 @@ export function setupBridge(server: Server): void {
 
       // Load recent message history
       const history = await dm.messages({ limit: 20 });
-      const historyMsgs = history.map((m: { id: string; senderAddress?: string; content: unknown; sentAtNs?: bigint }) => ({
-        id: m.id,
-        sender: m.senderAddress === agentAddress ? "agent" : "user",
-        text: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-        time: new Date(m.sentAtNs ? Number(m.sentAtNs) / 1_000_000 : Date.now()).toISOString(),
-      }));
+      const historyMsgs = history
+        .filter((m: { content: unknown }) => typeof m.content === "string" && m.content.trim())
+        .map((m: { id: string; senderAddress?: string; content: unknown; sentAtNs?: bigint }) => ({
+          id: m.id,
+          sender: m.senderAddress === agentAddress ? "agent" : "user",
+          text: m.content as string,
+          time: new Date(m.sentAtNs ? Number(m.sentAtNs) / 1_000_000 : Date.now()).toISOString(),
+        }));
       send(ws, { type: "history", messages: historyMsgs });
 
       // Stream new messages from this DM
       const stream = await dm.stream();
       const streamReader = (async () => {
         for await (const msg of stream) {
-          // Only forward agent's responses (not the user's own messages)
-          const content = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
+          // Skip non-text messages (group events, membership changes, etc.)
+          if (typeof msg.content !== "string" || !msg.content.trim()) continue;
+
           send(ws, {
             type: "message",
             id: msg.id,
             sender: (msg as { senderAddress?: string }).senderAddress === agentAddress ? "agent" : "user",
-            text: content,
+            text: msg.content,
           });
         }
       })();
