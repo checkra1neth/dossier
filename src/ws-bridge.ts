@@ -10,6 +10,68 @@ export function setChatAgent(agent: Agent): void {
   xmtpAgent = agent;
 }
 
+// Relay XMTP client — separate identity for sending messages on behalf of dashboard users
+let relayClient: Awaited<ReturnType<typeof import("@xmtp/node-sdk").Client.create>> | null = null;
+let relayAddress: string | null = null;
+
+async function getRelayClient(): Promise<typeof relayClient> {
+  if (relayClient) return relayClient;
+
+  try {
+    const nodeSdk = await import("@xmtp/node-sdk");
+    const Client = nodeSdk.Client;
+    const ows = await import("@open-wallet-standard/core");
+
+    const relayWalletName = "chat-relay";
+
+    // Create relay wallet if it doesn't exist
+    const wallets = ows.listWallets();
+    if (!wallets.find((w: { name: string }) => w.name === relayWalletName)) {
+      ows.createWallet(relayWalletName);
+      console.log(`[chat-relay] Created OWS wallet "${relayWalletName}"`);
+    }
+
+    const wallet = ows.getWallet(relayWalletName);
+    const evmAccount = wallet.accounts.find((a: { chainId: string }) => a.chainId.startsWith("eip155:"));
+    if (!evmAccount) throw new Error("No EVM account in relay wallet");
+    relayAddress = evmAccount.address as string;
+
+    const signer = {
+      type: "EOA" as const,
+      getIdentifier: () => ({
+        identifier: relayAddress!.toLowerCase(),
+        identifierKind: nodeSdk.IdentifierKind.Ethereum,
+      }),
+      signMessage: (message: string) => {
+        const result = ows.signMessage(relayWalletName, "evm", message);
+        const sigHex = result.signature.startsWith("0x") ? result.signature.slice(2) : result.signature;
+        const bytes = new Uint8Array(Buffer.from(sigHex, "hex"));
+        if (bytes.length === 64) {
+          const full = new Uint8Array(65);
+          full.set(bytes);
+          full[64] = (result.recoveryId ?? 0) + 27;
+          return full;
+        }
+        return bytes;
+      },
+    };
+
+    const dbKeyHex = process.env.DB_ENCRYPTION_KEY;
+    const dbEncryptionKey = dbKeyHex
+      ? new Uint8Array(Buffer.from(dbKeyHex.startsWith("0x") ? dbKeyHex.slice(2) : dbKeyHex, "hex"))
+      : undefined;
+
+    const xmtpEnv = (process.env.XMTP_ENV || "dev") as "dev" | "production";
+
+    relayClient = await Client.create(signer, { env: xmtpEnv, dbEncryptionKey } as Parameters<typeof Client.create>[1]);
+    console.log(`[chat-relay] XMTP relay client ready: ${relayAddress}`);
+    return relayClient;
+  } catch (err) {
+    console.error("[chat-relay] Failed to create relay client:", (err as Error).message);
+    return null;
+  }
+}
+
 interface PendingRequest {
   resolve: (signature: string) => void;
   reject: (err: Error) => void;
@@ -85,51 +147,57 @@ export function setupBridge(server: Server): void {
       return;
     }
 
-    // Get bridge session to know the user's address
-    const bridgeSession = bridgeSessionId ? getSession(bridgeSessionId) : null;
-    const userAddress = bridgeSession?.address;
-    if (!userAddress) {
-      send(ws, { type: "error", error: "Connect OWS wallet first" });
+    const agentAddr = xmtpAgent.address;
+    if (!agentAddr) {
+      send(ws, { type: "error", error: "XMTP agent address not available" });
       ws.close();
       return;
     }
 
-    console.log(`[chat] XMTP relay for ${userAddress.slice(0, 8)}...`);
-
-    // Create DM conversation with the user's address through the agent
-    let conversationId: string | null = null;
+    console.log(`[chat] Setting up XMTP relay...`);
 
     try {
-      const dm = await xmtpAgent.createDmWithAddress(userAddress.toLowerCase() as `0x${string}`);
-      conversationId = dm.id;
-      console.log(`[chat] XMTP DM created: ${conversationId}`);
+      // Get relay client (separate XMTP identity, not the agent)
+      const relay = await getRelayClient();
+      if (!relay) {
+        send(ws, { type: "error", error: "Chat relay not available" });
+        ws.close();
+        return;
+      }
 
-      const agentAddress = xmtpAgent.address;
+      // Create DM from relay → agent
+      const nodeSdk = await import("@xmtp/node-sdk");
+      const dm = await relay.conversations.createDmWithIdentifier(
+        { identifier: agentAddr.toLowerCase(), identifierKind: nodeSdk.IdentifierKind.Ethereum },
+      );
+      console.log(`[chat] XMTP DM relay→agent created: ${dm.id}`);
 
       // Load recent message history
+      await dm.sync();
       const history = await dm.messages({ limit: 20 });
       const historyMsgs = history
-        .filter((m: { content: unknown }) => typeof m.content === "string" && m.content.trim())
-        .map((m: { id: string; senderAddress?: string; content: unknown; sentAtNs?: bigint }) => ({
+        .filter((m) => typeof m.content === "string" && (m.content as string).trim())
+        .map((m) => ({
           id: m.id,
-          sender: m.senderAddress === agentAddress ? "agent" : "user",
+          sender: m.senderInboxId === relay.inboxId ? "user" : "agent",
           text: m.content as string,
-          time: new Date(m.sentAtNs ? Number(m.sentAtNs) / 1_000_000 : Date.now()).toISOString(),
+          time: new Date(Number(m.sentAtNs) / 1_000_000).toISOString(),
         }));
       send(ws, { type: "history", messages: historyMsgs });
 
-      // Stream new messages from this DM
+      // Stream new messages
       const stream = await dm.stream();
       const streamReader = (async () => {
         for await (const msg of stream) {
-          // Skip non-text messages (group events, membership changes, etc.)
-          if (typeof msg.content !== "string" || !msg.content.trim()) continue;
+          if (typeof msg.content !== "string" || !(msg.content as string).trim()) continue;
+          // Only forward AGENT responses (not relay's own messages)
+          if (msg.senderInboxId === relay.inboxId) continue;
 
           send(ws, {
             type: "message",
             id: msg.id,
-            sender: (msg as { senderAddress?: string }).senderAddress === agentAddress ? "agent" : "user",
-            text: msg.content,
+            sender: "agent",
+            text: msg.content as string,
           });
         }
       })();
@@ -139,7 +207,7 @@ export function setupBridge(server: Server): void {
         stream.return().catch(() => {});
       });
 
-      // Handle incoming messages from browser — send through XMTP
+      // Handle incoming messages from browser — relay sends through XMTP
       ws.on("message", async (raw) => {
         let msg: { type: string; text?: string };
         try { msg = JSON.parse(raw.toString()); } catch { return; }
@@ -147,6 +215,7 @@ export function setupBridge(server: Server): void {
         if (msg.type === "message" && msg.text) {
           console.log(`[chat] XMTP relay: ${msg.text.slice(0, 50)}`);
           try {
+            await dm.sync();
             await dm.sendText(msg.text);
           } catch (err) {
             send(ws, { type: "error", error: (err as Error).message });
@@ -154,11 +223,10 @@ export function setupBridge(server: Server): void {
         }
       });
 
-      // Keep reference to avoid GC
       void streamReader;
 
     } catch (err) {
-      console.error("[chat] XMTP DM setup failed:", (err as Error).message);
+      console.error("[chat] XMTP relay setup failed:", (err as Error).message);
       send(ws, { type: "error", error: `XMTP setup failed: ${(err as Error).message}` });
       ws.close();
     }
