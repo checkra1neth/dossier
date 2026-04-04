@@ -61,7 +61,14 @@ export function ChatPanel({ bridge }: ChatPanelProps): ReactNode {
         const client = await Client.create(signer, {
           env: XMTP_ENV,
           disableDeviceSync: true,
+          disableAutoRegister: true,
         } as Parameters<typeof Client.create>[1]);
+
+        // Register manually if needed (first time only)
+        if (!client.isReady) {
+          console.log("[xmtp-chat] Registering identity...");
+          await client.register();
+        }
 
         if (cancelled) { client.close(); return; }
         clientRef.current = client;
