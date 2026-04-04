@@ -1,0 +1,8 @@
+node_modules
+frontend/node_modules
+frontend/dist
+.env
+*.db3*
+.superpowers
+docs/superpowers
+.git
