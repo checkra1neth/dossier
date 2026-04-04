@@ -7,7 +7,7 @@ import {
   signTypedData as owsSignTypedData,
 } from "@open-wallet-standard/core";
 
-const DEFAULT_HOST = "wss://dossier-production-1366.up.railway.app";
+const DEFAULT_HOST = "wss://dossier.up.railway.app";
 
 function parseArgs(): { sessionCode: string; walletName: string; host: string } {
   const args = process.argv.slice(2);

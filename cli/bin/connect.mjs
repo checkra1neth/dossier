@@ -9,7 +9,7 @@ import {
   createWallet as owsCreateWallet,
 } from "@open-wallet-standard/core";
 
-const DEFAULT_HOST = "wss://dossier-production-1366.up.railway.app";
+const DEFAULT_HOST = "wss://dossier.up.railway.app";
 const VERSION = "1.0.0";
 
 // ── Parse args ──────────────────────────────────────────────────────

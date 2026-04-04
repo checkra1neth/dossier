@@ -1,6 +1,6 @@
 {
   "name": "dossier-connect",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Connect your OWS wallet to the Dossier dashboard",
   "type": "module",
   "bin": {

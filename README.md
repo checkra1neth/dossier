@@ -48,7 +48,7 @@ Built for OWS Hackathon — April 3, 2026 | Track 3: Pay-Per-Call Services
 
 ### 1. Web Dashboard
 
-**Live:** [dossier-production-1366.up.railway.app](https://dossier-production-1366.up.railway.app)
+**Live:** [dossier.up.railway.app](https://dossier.up.railway.app)
 
 Select a command, enter a wallet address, and get visual reports.
 
@@ -245,7 +245,7 @@ CDP_API_KEY_SECRET=...                # Coinbase CDP API key secret (optional)
 
 # ── Server ──
 PORT=4000
-WEBHOOK_URL=https://dossier-production-1366.up.railway.app/webhook   # Public URL for Zerion webhook callbacks
+WEBHOOK_URL=https://dossier.up.railway.app/webhook   # Public URL for Zerion webhook callbacks
 ```
 
 | Variable | Required | Description |
