@@ -18,12 +18,12 @@ COPY src/ ./src/
 COPY tsconfig.json ./
 COPY .env.example ./
 
-# Find ALL copies of node-bindings and ensure they have the .node files
-RUN find node_modules -path "*/node-bindings/dist" -type d | while read d; do \
-      echo "=== $d ==="; ls "$d"/*.node 2>/dev/null || echo "NO .node FILES!"; \
+# Fix nested XMTP node-bindings — remove duplicates, force single copy
+RUN find node_modules -path "*/node_modules/@xmtp/node-bindings" -not -path "node_modules/@xmtp/node-bindings" -type d | \
+    while read nested; do \
+      echo "Removing nested: $nested"; \
+      rm -rf "$nested"; \
     done
-# Dedupe to flatten nested copies
-RUN npm dedupe 2>/dev/null || true
 
 EXPOSE 8080
 
