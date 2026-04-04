@@ -12,12 +12,9 @@ interface BridgeState {
 }
 
 function generateSessionId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let id = "";
-  for (let i = 0; i < 6; i++) {
-    id += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return id;
+  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
 }
 
 export function useBridge(): BridgeState {
