@@ -29,6 +29,7 @@ import { handleSend } from "./commands/send.ts";
 import { getWalletInfo } from "./services/ows.ts";
 import { getWatch } from "./services/webhooks.ts";
 import { apiProxyRouter } from "./api-proxy.ts";
+import { setupBridge } from "./ws-bridge.ts";
 
 // Prevent server crash on unhandled errors
 process.on("unhandledRejection", (err) => {
@@ -667,7 +668,8 @@ app.get("/{*path}", (_req, res) => {
 // Start servers
 const port = parseInt(process.env.PORT ?? "4000");
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
+  setupBridge(server);
   console.log(`[server] REST API listening on http://localhost:${port}`);
   console.log(`[server] Analytics:`);
   console.log(`[server]   POST /quick    — $0.01 via x402`);

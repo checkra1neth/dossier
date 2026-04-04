@@ -1,8 +1,7 @@
 /**
  * Dashboard API proxy.
  * - Calls handlers directly (preserves address bytes)
- * - Makes real x402 payment via OWS CLI to /health (USDC actually moves)
- * - Both happen in parallel
+ * - Makes x402 payment via OWS CLI or remote bridge signer
  */
 import express from "express";
 import { spawn } from "node:child_process";
@@ -21,6 +20,7 @@ import { handleBridge } from "./commands/bridge.ts";
 import { handleSend, executeSend } from "./commands/send.ts";
 import { research } from "./pipeline.ts";
 import { getWalletInfo } from "./services/ows.ts";
+import { getSession, requestSignature } from "./ws-bridge.ts";
 
 const router = express.Router();
 const SERVER_URL = process.env.SERVER_URL || `http://localhost:${process.env.PORT || "4000"}`;
@@ -70,28 +70,62 @@ function doX402Payment(cmd: string, body?: Record<string, unknown>): Promise<boo
 }
 
 // ---------------------------------------------------------------------------
-// Wallet management
+// Bridge-aware payment: use remote signer if bridge connected, else local OWS
 // ---------------------------------------------------------------------------
-router.get("/wallet", (_req, res) => {
+function getBridgeSessionId(req: express.Request): string | null {
+  const id = req.headers["x-bridge-session"] as string | undefined;
+  if (!id) return null;
+  const session = getSession(id);
+  return session?.connected ? id : null;
+}
+
+async function doBridgeX402Payment(sessionId: string, cmd: string, body?: Record<string, unknown>): Promise<boolean> {
+  const price = PRICE_MAP[cmd];
+  if (!price) return true;
+
+  try {
+    // Send sign request to bridge CLI — it will do the full x402 payment
+    await requestSignature(sessionId, "x402Payment", {
+      description: `x402 payment $${price} USDC for /${cmd}`,
+      command: cmd,
+      price,
+      body: body ?? {},
+      serverUrl: SERVER_URL,
+    });
+    console.log(`[x402-bridge] /${cmd} $${price} — signed by remote wallet`);
+    return true;
+  } catch (err) {
+    console.log(`[x402-bridge] /${cmd} $${price} — failed: ${(err as Error).message}`);
+    return false;
+  }
+}
+
+async function payForCommand(req: express.Request, cmd: string, body?: Record<string, unknown>): Promise<boolean> {
+  const bridgeSession = getBridgeSessionId(req);
+  if (bridgeSession) {
+    return doBridgeX402Payment(bridgeSession, cmd, body);
+  }
+  return doX402Payment(cmd, body);
+}
+
+// ---------------------------------------------------------------------------
+// Wallet management — bridge-aware
+// ---------------------------------------------------------------------------
+router.get("/wallet", (req, res) => {
+  const bridgeSession = req.query.session as string | undefined;
+  if (bridgeSession) {
+    const session = getSession(bridgeSession);
+    if (session) {
+      res.json({ name: session.name, address: session.address, connected: true, bridge: true });
+      return;
+    }
+  }
   try {
     const w = owsGetWallet(activeWallet);
     const evm = w.accounts.find((a: { chainId: string }) => a.chainId.startsWith("eip155:"));
     res.json({ name: w.name, address: evm?.address ?? "N/A", connected: true });
   } catch {
     res.json({ name: null, address: null, connected: false });
-  }
-});
-
-router.post("/wallet/connect", (req, res) => {
-  const { wallet } = req.body as { wallet?: string };
-  if (!wallet) { res.status(400).json({ error: "wallet name required" }); return; }
-  try {
-    const w = owsGetWallet(wallet);
-    const evm = w.accounts.find((a: { chainId: string }) => a.chainId.startsWith("eip155:"));
-    activeWallet = wallet;
-    res.json({ name: w.name, address: evm?.address ?? "N/A", connected: true });
-  } catch {
-    res.status(404).json({ error: `Wallet "${wallet}" not found` });
   }
 });
 
@@ -126,7 +160,7 @@ router.post("/unwatch", async (req: express.Request, res: express.Response) => {
 router.post("/quick", async (req: express.Request, res: express.Response) => {
   const { address } = req.body as { address?: string };
   if (!validateAddr(address)) { res.status(400).json({ error: "Invalid address" }); return; }
-  const paid = await doX402Payment("quick", { address });
+  const paid = await payForCommand(req,"quick", { address });
   if (!paid) { res.status(402).json({ error: "Insufficient USDC balance on Base. Top up your OWS wallet to use paid commands." }); return; }
   try { res.json(await handleQuick(address)); }
   catch (err) { res.status(500).json({ error: (err as Error).message }); }
@@ -135,7 +169,7 @@ router.post("/quick", async (req: express.Request, res: express.Response) => {
 router.post("/research", async (req: express.Request, res: express.Response) => {
   const { address } = req.body as { address?: string };
   if (!validateAddr(address)) { res.status(400).json({ error: "Invalid address" }); return; }
-  const paid = await doX402Payment("research", { address });
+  const paid = await payForCommand(req,"research", { address });
   if (!paid) { res.status(402).json({ error: "Insufficient USDC balance on Base. Top up your OWS wallet to use paid commands." }); return; }
   try { res.json(await research(address)); }
   catch (err) { res.status(500).json({ error: (err as Error).message }); }
@@ -144,7 +178,7 @@ router.post("/research", async (req: express.Request, res: express.Response) => 
 router.post("/pnl", async (req: express.Request, res: express.Response) => {
   const { address } = req.body as { address?: string };
   if (!validateAddr(address)) { res.status(400).json({ error: "Invalid address" }); return; }
-  const paid = await doX402Payment("pnl", { address });
+  const paid = await payForCommand(req,"pnl", { address });
   if (!paid) { res.status(402).json({ error: "Insufficient USDC balance on Base. Top up your OWS wallet to use paid commands." }); return; }
   try { res.json(await handlePnl(address)); }
   catch (err) { res.status(500).json({ error: (err as Error).message }); }
@@ -153,7 +187,7 @@ router.post("/pnl", async (req: express.Request, res: express.Response) => {
 router.post("/defi", async (req: express.Request, res: express.Response) => {
   const { address } = req.body as { address?: string };
   if (!validateAddr(address)) { res.status(400).json({ error: "Invalid address" }); return; }
-  const paid = await doX402Payment("defi", { address });
+  const paid = await payForCommand(req,"defi", { address });
   if (!paid) { res.status(402).json({ error: "Insufficient USDC balance on Base. Top up your OWS wallet to use paid commands." }); return; }
   try { res.json(await handleDefi(address)); }
   catch (err) { res.status(500).json({ error: (err as Error).message }); }
@@ -162,7 +196,7 @@ router.post("/defi", async (req: express.Request, res: express.Response) => {
 router.post("/history", async (req: express.Request, res: express.Response) => {
   const { address } = req.body as { address?: string };
   if (!validateAddr(address)) { res.status(400).json({ error: "Invalid address" }); return; }
-  const paid = await doX402Payment("history", { address });
+  const paid = await payForCommand(req,"history", { address });
   if (!paid) { res.status(402).json({ error: "Insufficient USDC balance on Base. Top up your OWS wallet to use paid commands." }); return; }
   try { res.json(await handleHistory(address)); }
   catch (err) { res.status(500).json({ error: (err as Error).message }); }
@@ -171,7 +205,7 @@ router.post("/history", async (req: express.Request, res: express.Response) => {
 router.post("/nft", async (req: express.Request, res: express.Response) => {
   const { address } = req.body as { address?: string };
   if (!validateAddr(address)) { res.status(400).json({ error: "Invalid address" }); return; }
-  const paid = await doX402Payment("nft", { address });
+  const paid = await payForCommand(req,"nft", { address });
   if (!paid) { res.status(402).json({ error: "Insufficient USDC balance on Base. Top up your OWS wallet to use paid commands." }); return; }
   try { res.json(await handleNft(address)); }
   catch (err) { res.status(500).json({ error: (err as Error).message }); }
@@ -180,7 +214,7 @@ router.post("/nft", async (req: express.Request, res: express.Response) => {
 router.post("/compare", async (req: express.Request, res: express.Response) => {
   const { addressA, addressB } = req.body as { addressA?: string; addressB?: string };
   if (!validateAddr(addressA) || !validateAddr(addressB)) { res.status(400).json({ error: "Two valid addresses required" }); return; }
-  const paid = await doX402Payment("compare", { addressA, addressB });
+  const paid = await payForCommand(req,"compare", { addressA, addressB });
   if (!paid) { res.status(402).json({ error: "Insufficient USDC balance on Base. Top up your OWS wallet to use paid commands." }); return; }
   try { res.json(await handleCompare(addressA, addressB)); }
   catch (err) { res.status(500).json({ error: (err as Error).message }); }
@@ -189,7 +223,7 @@ router.post("/compare", async (req: express.Request, res: express.Response) => {
 router.post("/swap", async (req: express.Request, res: express.Response) => {
   const { amount, inputToken, outputToken, chain } = req.body as { amount?: number; inputToken?: string; outputToken?: string; chain?: string };
   if (!amount || !inputToken || !outputToken) { res.status(400).json({ error: "amount, inputToken, outputToken required" }); return; }
-  const paid = await doX402Payment("swap", req.body as Record<string, unknown>);
+  const paid = await payForCommand(req,"swap", req.body as Record<string, unknown>);
   if (!paid) { res.status(402).json({ error: "Insufficient USDC balance on Base. Top up your OWS wallet to use paid commands." }); return; }
   try {
     const wallet = getWalletInfo(owsServerWallet).address;
@@ -200,7 +234,7 @@ router.post("/swap", async (req: express.Request, res: express.Response) => {
 router.post("/bridge", async (req: express.Request, res: express.Response) => {
   const { amount, symbol, fromChain, toChain } = req.body as { amount?: number; symbol?: string; fromChain?: string; toChain?: string };
   if (!amount || !symbol || !fromChain || !toChain) { res.status(400).json({ error: "amount, symbol, fromChain, toChain required" }); return; }
-  const paid = await doX402Payment("bridge", req.body as Record<string, unknown>);
+  const paid = await payForCommand(req,"bridge", req.body as Record<string, unknown>);
   if (!paid) { res.status(402).json({ error: "Insufficient USDC balance on Base. Top up your OWS wallet to use paid commands." }); return; }
   try {
     const wallet = getWalletInfo(owsServerWallet).address;
@@ -211,7 +245,7 @@ router.post("/bridge", async (req: express.Request, res: express.Response) => {
 router.post("/send", async (req: express.Request, res: express.Response) => {
   const { amount, symbol, toAddress, chain } = req.body as { amount?: number; symbol?: string; toAddress?: string; chain?: string };
   if (!amount || !symbol || !toAddress) { res.status(400).json({ error: "amount, symbol, toAddress required" }); return; }
-  const paid = await doX402Payment("send", req.body as Record<string, unknown>);
+  const paid = await payForCommand(req,"send", req.body as Record<string, unknown>);
   if (!paid) { res.status(402).json({ error: "Insufficient USDC balance on Base. Top up your OWS wallet to use paid commands." }); return; }
   try {
     const result = await handleSend({ amount, symbol, toAddress, chain: chain ?? "base" }, activeWallet);
@@ -226,7 +260,7 @@ router.post("/send", async (req: express.Request, res: express.Response) => {
 router.post("/watch", async (req: express.Request, res: express.Response) => {
   const { address } = req.body as { address?: string };
   if (!validateAddr(address)) { res.status(400).json({ error: "Invalid address" }); return; }
-  const paid = await doX402Payment("watch", { address });
+  const paid = await payForCommand(req,"watch", { address });
   if (!paid) { res.status(402).json({ error: "Insufficient USDC balance on Base. Top up your OWS wallet to use paid commands." }); return; }
   try {
     const { handleWatch } = await import("./commands/watch.ts");

@@ -4,9 +4,10 @@ import { Link } from "react-router-dom";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import "../styles/dashboard.css";
-import { COMMANDS, query, queryGet, getActiveWallet, connectWallet } from "../api";
-import type { Command, OWSWallet } from "../api";
+import { COMMANDS, query, queryGet } from "../api";
+import type { Command } from "../api";
 import { ReportView } from "../components/reports";
+import { useBridge } from "../hooks/useBridge";
 
 interface HistoryEntry {
   command: Command;
@@ -93,32 +94,14 @@ export function Dashboard(): ReactNode {
   const [reportCmd, setReportCmd] = useState<Command | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
 
-  const [wallet, setWallet] = useState<OWSWallet | null>(null);
-  const [walletInput, setWalletInput] = useState("");
-  const [showWalletInput, setShowWalletInput] = useState(false);
-  const [walletError, setWalletError] = useState<string | null>(null);
+  const bridge = useBridge();
+  const [showBridge, setShowBridge] = useState(false);
 
   const reportRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const loadingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => { inputRef.current?.focus(); }, [activeCmd]);
-
-  useEffect(() => { getActiveWallet().then(setWallet).catch(() => {}); }, []);
-
-  const handleConnectWallet = useCallback(async () => {
-    const name = walletInput.trim();
-    if (!name) return;
-    setWalletError(null);
-    try {
-      const w = await connectWallet(name);
-      setWallet(w);
-      setShowWalletInput(false);
-      setWalletInput("");
-    } catch (err) {
-      setWalletError(err instanceof Error ? err.message : "Wallet not found");
-    }
-  }, [walletInput]);
 
   const handleCmdChange = useCallback((cmd: Command) => {
     if (reportRef.current && reportData) {
@@ -257,33 +240,37 @@ export function Dashboard(): ReactNode {
       <header className="d-topbar">
         <Link to="/" className="d-logo">Dossier</Link>
         <div className="d-wallet-area">
-          {wallet?.connected ? (
-            <button className="d-wallet-btn connected" onClick={() => setShowWalletInput(!showWalletInput)} type="button">
+          {bridge.status === "connected" && bridge.address ? (
+            <button className="d-wallet-btn connected" onClick={() => setShowBridge(!showBridge)} type="button">
               <span className="d-wallet-dot" />
               <span className="d-wallet-label">OWS</span>
-              {wallet.address.slice(0, 6)}...{wallet.address.slice(-4)}
+              {bridge.address.slice(0, 6)}...{bridge.address.slice(-4)}
             </button>
           ) : (
-            <button className="d-wallet-btn" onClick={() => setShowWalletInput(true)} type="button">Connect OWS Wallet</button>
+            <button className="d-wallet-btn" onClick={() => setShowBridge(!showBridge)} type="button">
+              {bridge.status === "waiting" ? "Connect OWS Wallet" : "Reconnecting..."}
+            </button>
           )}
-          {showWalletInput && (
+          {showBridge && (
             <div className="d-wallet-dropdown">
-              <div className="d-wallet-form">
-                <label>OWS Wallet Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g. my-wallet"
-                  value={walletInput}
-                  onChange={(e) => setWalletInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleConnectWallet()}
-                />
-                <button onClick={handleConnectWallet} type="button">Connect</button>
-              </div>
-              {walletError && <div className="d-wallet-err">{walletError}</div>}
-              {wallet?.connected && (
+              {bridge.status === "connected" && bridge.address ? (
                 <div className="d-wallet-info">
-                  <div className="d-wi-row"><span>Active</span><strong>{wallet.name}</strong></div>
-                  <div className="d-wi-row"><span>Address</span><span className="mono">{wallet.address}</span></div>
+                  <div className="d-wi-row"><span>Wallet</span><strong>{bridge.name}</strong></div>
+                  <div className="d-wi-row"><span>Address</span><span className="mono">{bridge.address}</span></div>
+                  <div className="d-wi-row"><span>Status</span><span className="d-bridge-ok">Connected via bridge</span></div>
+                </div>
+              ) : (
+                <div className="d-bridge-pair">
+                  <p className="d-bridge-label">Run in your terminal:</p>
+                  <button
+                    className="d-bridge-cmd"
+                    onClick={() => navigator.clipboard.writeText(bridge.connectCommand)}
+                    type="button"
+                    title="Click to copy"
+                  >
+                    {bridge.connectCommand}
+                  </button>
+                  <p className="d-bridge-wait">Waiting for connection...</p>
                 </div>
               )}
             </div>
