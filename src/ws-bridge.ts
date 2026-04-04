@@ -89,6 +89,26 @@ export function setupBridge(server: Server): void {
           send(ws, { type: "paired", address: session.address, name: session.name });
         }
 
+        // Relay sign requests from browser to signer
+        ws.on("message", (raw) => {
+          let msg: { type: string; id?: string };
+          try { msg = JSON.parse(raw.toString()); } catch { return; }
+
+          if (msg.type === "sign_request" && msg.id && session.signer) {
+            // Forward to signer, track pending so response goes back to browser
+            const pending = session.pending;
+            pending.set(msg.id, {
+              resolve: (signature: string) => { send(session.browser, { type: "sign_response", id: msg.id, signature }); },
+              reject: (err: Error) => { send(session.browser, { type: "sign_rejected", id: msg.id, reason: err.message }); },
+              timer: setTimeout(() => {
+                pending.delete(msg.id!);
+                send(session.browser, { type: "sign_rejected", id: msg.id, reason: "Signing timeout" });
+              }, 60_000),
+            });
+            send(session.signer, JSON.parse(raw.toString()));
+          }
+        });
+
         ws.on("close", () => {
           if (session.browser === ws) session.browser = null;
           if (!session.signer && !session.browser) cleanupSession(sessionId);

@@ -3,6 +3,7 @@ import { execSync } from "node:child_process";
 import WebSocket from "ws";
 import {
   getWallet as owsGetWallet,
+  signMessage as owsSignMessage,
   signTypedData as owsSignTypedData,
 } from "@open-wallet-standard/core";
 
@@ -111,6 +112,21 @@ function connect(sessionCode: string, walletName: string, host: string): void {
             ws.send(JSON.stringify({ type: "sign_rejected", id: msg.id, reason: result.trim().split("\n")[0] }));
             console.log(`  Payment failed: ${result.trim().split("\n")[0]}\n`);
           }
+        } else if (method === "signMessage") {
+          // Raw message signing (used for XMTP identity)
+          const message = (msg.params as { message: string }).message;
+          const result = owsSignMessage(walletName, "evm", message);
+          const sigHex = result.signature.startsWith("0x") ? result.signature.slice(2) : result.signature;
+          // Ensure 65 bytes (r + s + v)
+          let fullSig: string;
+          if (sigHex.length === 128) {
+            const v = (result.recoveryId ?? 0) + 27;
+            fullSig = sigHex + v.toString(16).padStart(2, "0");
+          } else {
+            fullSig = sigHex;
+          }
+          ws.send(JSON.stringify({ type: "sign_response", id: msg.id, signature: fullSig }));
+          console.log("  Signed\n");
         } else {
           // EIP-712 signTypedData
           const signature = signTypedData(walletName, msg.params as {
