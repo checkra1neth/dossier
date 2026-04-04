@@ -1,0 +1,28 @@
+{
+  "name": "dossier-connect",
+  "version": "1.0.0",
+  "description": "Connect your OWS wallet to the Dossier dashboard",
+  "type": "module",
+  "bin": {
+    "dossier-connect": "./bin/connect.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin/"
+  ],
+  "keywords": [
+    "ows",
+    "x402",
+    "dossier",
+    "wallet",
+    "bridge",
+    "defi"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@open-wallet-standard/core": "^1.2.0",
+    "ws": "^8.20.0"
+  }
+}
