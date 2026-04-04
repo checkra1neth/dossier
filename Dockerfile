@@ -1,4 +1,4 @@
-FROM node:22-slim
+FROM node:22
 
 WORKDIR /app
 
@@ -6,8 +6,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY frontend/package.json frontend/package-lock.json ./frontend/
 
-# Install backend deps (clean install to avoid optional deps bug)
-RUN npm ci
+# Install backend deps — delete lock & node_modules first per XMTP recommendation
+RUN rm -f package-lock.json && npm install
 
 # Install frontend deps and build
 COPY frontend/ ./frontend/
