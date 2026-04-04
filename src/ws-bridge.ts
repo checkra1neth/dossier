@@ -132,6 +132,16 @@ setInterval(() => {
 // Chat relay — messages go through XMTP agent with x402 payment
 // ---------------------------------------------------------------------------
 
+const CHAT_PRICE_MAP: Record<string, string> = {
+  quick: "0.01", research: "0.05", pnl: "0.02", defi: "0.02",
+  history: "0.02", nft: "0.02", compare: "0.05",
+  swap: "0.01", bridge: "0.01", send: "0.01", watch: "0.10",
+};
+
+const PUBLIC_URL = process.env.PUBLIC_URL
+  || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null)
+  || `http://localhost:${process.env.PORT || "4000"}`;
+
 export function setupBridge(server: Server): void {
   const wss = new WebSocketServer({ noServer: true });
   const chatWss = new WebSocketServer({ noServer: true });
@@ -172,6 +182,12 @@ export function setupBridge(server: Server): void {
       );
       console.log(`[chat] XMTP DM relay→agent created: ${dm.id}`);
 
+      // Sync agent so it discovers this new DM before any messages are sent
+      if (xmtpAgent) {
+        await xmtpAgent.client.conversations.syncAll();
+        console.log(`[chat] Agent conversations synced — ready to receive messages`);
+      }
+
       // Load recent message history
       await dm.sync();
       const history = await dm.messages({ limit: 20 });
@@ -207,13 +223,56 @@ export function setupBridge(server: Server): void {
         stream.return().catch(() => {});
       });
 
-      // Handle incoming messages from browser — relay sends through XMTP
+      // Handle incoming messages from browser — x402 payment + XMTP relay
       ws.on("message", async (raw) => {
         let msg: { type: string; text?: string };
         try { msg = JSON.parse(raw.toString()); } catch { return; }
 
         if (msg.type === "message" && msg.text) {
-          console.log(`[chat] XMTP relay: ${msg.text.slice(0, 50)}`);
+          const text = msg.text.trim();
+          const cmdMatch = text.match(/^\/(\w+)/);
+          const cmd = cmdMatch?.[1]?.toLowerCase();
+          const price = cmd ? CHAT_PRICE_MAP[cmd as keyof typeof CHAT_PRICE_MAP] : undefined;
+
+          console.log(`[chat] XMTP relay: ${text.slice(0, 50)}`);
+
+          // Paid command → do x402 payment via bridge before forwarding to XMTP
+          if (price) {
+            if (!bridgeSessionId || !getSession(bridgeSessionId)) {
+              send(ws, { type: "message", id: `sys_${Date.now()}`, sender: "agent",
+                text: `❌ OWS wallet not connected. Pair your wallet to make paid requests.` });
+              return;
+            }
+
+            send(ws, { type: "message", id: `sys_${Date.now()}`, sender: "agent",
+              text: `💳 /${cmd} · $${price} USDC · Paying...` });
+
+            try {
+              const addresses = text.match(/0x[a-fA-F0-9]{40}/g);
+              const body = cmd === "compare"
+                ? { addressA: addresses?.[0], addressB: addresses?.[1] }
+                : { address: addresses?.[0] };
+
+              await requestSignature(bridgeSessionId, "x402Payment", {
+                description: `x402 payment $${price} USDC for /${cmd}`,
+                command: cmd,
+                price,
+                body,
+                serverUrl: PUBLIC_URL,
+              });
+
+              console.log(`[chat] x402 /${cmd} $${price} — ✅ paid`);
+              send(ws, { type: "message", id: `sys_${Date.now()}`, sender: "agent",
+                text: `✅ Paid $${price} USDC! Processing request...` });
+            } catch (err) {
+              console.log(`[chat] x402 /${cmd} $${price} — ❌ ${(err as Error).message}`);
+              send(ws, { type: "message", id: `sys_${Date.now()}`, sender: "agent",
+                text: `❌ Payment failed: ${(err as Error).message}` });
+              return;
+            }
+          }
+
+          // Forward to XMTP agent (free commands go straight, paid commands after payment)
           try {
             await dm.sync();
             await dm.sendText(msg.text);
