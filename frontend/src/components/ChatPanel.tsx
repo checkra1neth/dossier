@@ -60,6 +60,7 @@ export function ChatPanel({ bridge }: ChatPanelProps): ReactNode {
         console.log("[xmtp-chat] Creating client...");
         const client = await Client.create(signer, {
           env: XMTP_ENV,
+          disableDeviceSync: true,
         } as Parameters<typeof Client.create>[1]);
 
         if (cancelled) { client.close(); return; }

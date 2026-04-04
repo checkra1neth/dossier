@@ -94,7 +94,9 @@ export function setupBridge(server: Server): void {
           let msg: { type: string; id?: string };
           try { msg = JSON.parse(raw.toString()); } catch { return; }
 
+          console.log(`[bridge] Browser message: type=${msg.type}, signer=${!!session.signer}`);
           if (msg.type === "sign_request" && msg.id && session.signer) {
+            console.log(`[bridge] Relaying sign_request ${msg.id} to signer`);
             // Forward to signer, track pending so response goes back to browser
             const pending = session.pending;
             pending.set(msg.id, {
