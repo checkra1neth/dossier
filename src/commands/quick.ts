@@ -13,9 +13,7 @@ export async function handleQuick(address: string): Promise<QuickReport> {
     fetchPositions(address),
   ]);
 
-  const topPositions = positions.slice(0, 3);
-
-  return { address, portfolio, topPositions };
+  return { address, portfolio, topPositions: positions };
 }
 
 export function quickToText(report: QuickReport): string {

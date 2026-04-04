@@ -312,12 +312,15 @@
 .tag-list { display: flex; flex-direction: column; gap: 5px; }
 .tag-item { font-size: 0.78rem; color: var(--ink-2); padding: 7px 11px; background: var(--sand-1); border: 1px solid var(--sand-2); border-radius: 2px; }
 .chain-row { display: flex; gap: 5px; flex-wrap: wrap; }
-.chain-tag { font-size: 0.7rem; font-weight: 600; color: var(--ink-3); padding: 4px 9px; border: 1px solid var(--sand-2); border-radius: 2px; text-transform: uppercase; letter-spacing: 0.04em; background: transparent; }
-.chain-btn { cursor: pointer; transition: all 120ms; }
-.chain-btn:hover { border-color: var(--ink-3); color: var(--ink); }
-.chain-active { background: var(--ink); color: var(--sand-0); border-color: var(--ink); }
-.chain-clear { color: var(--accent); border-color: var(--accent); }
-.chain-clear:hover { background: var(--accent); color: var(--sand-0); }
+.chain-tag { font-size: 0.7rem; font-weight: 600; color: var(--ink-3); padding: 4px 9px; border: 1px solid var(--sand-2); border-radius: 2px; text-transform: uppercase; letter-spacing: 0.04em; background: transparent; cursor: pointer; transition: all 120ms; position: relative; }
+.chain-tag:hover { border-color: var(--ink-3); color: var(--ink); }
+.chain-tag-active { background: var(--ink); color: var(--sand-0); border-color: var(--ink); }
+.chain-tag-active:hover { background: var(--ink-2); }
+.chain-count { font-size: 0.6rem; margin-left: 4px; opacity: 0.6; }
+.chain-tag-active .chain-count { opacity: 0.8; }
+.chain-clear { font-size: 0.72rem; color: var(--ink-3); background: none; border: none; cursor: pointer; margin-left: 8px; text-decoration: underline; padding: 0; }
+.chain-clear:hover { color: var(--ink); }
+.alloc-qty { font-size: 0.78rem; color: var(--ink-3); font-family: var(--font-mono); margin-right: 8px; }
 .mono { font-family: var(--font-mono); font-size: 0.76rem; color: var(--ink-2); }
 
 /* NFT GRID */
