@@ -272,10 +272,19 @@ export function setupBridge(server: Server): void {
             }
           }
 
+          // For /balance without address, inject the bridge wallet address
+          let forwardText = msg.text!;
+          if (cmd === "balance" && !text.match(/0x[a-fA-F0-9]{40}/)) {
+            const session = bridgeSessionId ? getSession(bridgeSessionId) : null;
+            if (session?.address) {
+              forwardText = `/balance ${session.address}`;
+            }
+          }
+
           // Forward to XMTP agent (free commands go straight, paid commands after payment)
           try {
             await dm.sync();
-            await dm.sendText(msg.text);
+            await dm.sendText(forwardText);
           } catch (err) {
             send(ws, { type: "error", error: (err as Error).message });
           }
