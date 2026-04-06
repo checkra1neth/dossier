@@ -3,6 +3,15 @@ import type { Server } from "node:http";
 import type { Agent } from "@xmtp/agent-sdk";
 import crypto from "node:crypto";
 import { registerRelayInboxId } from "./xmtp.ts";
+import { handleQuick, quickToText } from "./commands/quick.ts";
+import { handlePnl, pnlToText } from "./commands/pnl.ts";
+import { handleDefi, defiToText } from "./commands/defi.ts";
+import { handleHistory, historyToText } from "./commands/history.ts";
+import { handleNft, nftToText } from "./commands/nft.ts";
+import { handleCompare, compareToText } from "./commands/compare.ts";
+import { handleBalance, balanceToText } from "./commands/balance.ts";
+import { research } from "./pipeline.ts";
+import { reportToMarkdown } from "./report.ts";
 
 // XMTP agent reference — set from index.ts after agent starts
 let xmtpAgent: Agent | null = null;
@@ -139,7 +148,7 @@ setInterval(() => {
 }, 30_000);
 
 // ---------------------------------------------------------------------------
-// Chat relay — messages go through XMTP agent with x402 payment
+// Chat — direct command execution (no XMTP relay, no race conditions)
 // ---------------------------------------------------------------------------
 
 const CHAT_PRICE_MAP: Record<string, string> = {
@@ -152,162 +161,137 @@ const PUBLIC_URL = process.env.PUBLIC_URL
   || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null)
   || `http://localhost:${process.env.PORT || "4000"}`;
 
+// Execute a chat command directly (bypass XMTP relay)
+async function executeCommand(cmd: string, text: string, walletAddress?: string): Promise<string> {
+  const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
+
+  switch (cmd) {
+    case "help":
+      return (
+        `Dossier — Wallet Intelligence\n\n` +
+        `Analytics:\n` +
+        `  /quick 0x<addr>  — portfolio snapshot ($0.01)\n` +
+        `  /research 0x<addr> — deep research ($0.05)\n` +
+        `  /pnl 0x<addr>  — profit & loss ($0.02)\n` +
+        `  /defi 0x<addr>  — DeFi positions ($0.02)\n` +
+        `  /history 0x<addr> — tx history ($0.02)\n` +
+        `  /nft 0x<addr>  — NFT portfolio ($0.02)\n` +
+        `  /compare 0x<a> 0x<b> — compare wallets ($0.05)\n\n` +
+        `Wallet:\n` +
+        `  /balance — check wallet balance (free)\n\n` +
+        `Payments via USDC on Base.`
+      );
+    case "quick":
+      if (!address) return "Usage: /quick 0x<address>";
+      return quickToText(await handleQuick(address));
+    case "pnl":
+      if (!address) return "Usage: /pnl 0x<address>";
+      return pnlToText(await handlePnl(address));
+    case "defi":
+      if (!address) return "Usage: /defi 0x<address>";
+      return defiToText(await handleDefi(address));
+    case "history":
+      if (!address) return "Usage: /history 0x<address>";
+      return historyToText(await handleHistory(address));
+    case "nft":
+      if (!address) return "Usage: /nft 0x<address>";
+      return nftToText(await handleNft(address));
+    case "compare": {
+      const addresses = text.match(/0x[a-fA-F0-9]{40}/g);
+      if (!addresses || addresses.length < 2) return "Usage: /compare 0x<addressA> 0x<addressB>";
+      return compareToText(await handleCompare(addresses[0], addresses[1]));
+    }
+    case "balance": {
+      const target = address || walletAddress;
+      if (!target) return "Usage: /balance 0x<address>";
+      return balanceToText(await handleBalance(target));
+    }
+    case "research":
+      if (!address) return "Usage: /research 0x<address>";
+      return reportToMarkdown(await research(address));
+    default:
+      return `Unknown command: /${cmd}. Send /help for available commands.`;
+  }
+}
+
 export function setupBridge(server: Server): void {
   const wss = new WebSocketServer({ noServer: true });
   const chatWss = new WebSocketServer({ noServer: true });
 
-  // Chat WebSocket — relay messages through XMTP agent
+  // Chat WebSocket — direct command execution
   chatWss.on("connection", async (ws, req) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
     const bridgeSessionId = url.searchParams.get("session");
 
-    if (!xmtpAgent) {
-      send(ws, { type: "error", error: "XMTP agent not available" });
-      ws.close();
-      return;
-    }
+    console.log(`[chat] Client connected`);
+    send(ws, { type: "history", messages: [] });
 
-    const agentAddr = xmtpAgent.address;
-    if (!agentAddr) {
-      send(ws, { type: "error", error: "XMTP agent address not available" });
-      ws.close();
-      return;
-    }
+    ws.on("close", () => {
+      console.log("[chat] Client disconnected");
+    });
 
-    console.log(`[chat] Setting up XMTP relay...`);
+    ws.on("message", async (raw) => {
+      let msg: { type: string; text?: string };
+      try { msg = JSON.parse(raw.toString()); } catch { return; }
 
-    try {
-      // Get relay client (separate XMTP identity, not the agent)
-      const relay = await getRelayClient();
-      if (!relay) {
-        send(ws, { type: "error", error: "Chat relay not available" });
-        ws.close();
-        return;
-      }
+      if (msg.type === "message" && msg.text) {
+        const text = msg.text.trim();
+        const cmdMatch = text.match(/^\/(\w+)/);
+        const cmd = cmdMatch?.[1]?.toLowerCase();
+        const price = cmd ? CHAT_PRICE_MAP[cmd as keyof typeof CHAT_PRICE_MAP] : undefined;
 
-      // Create DM from relay → agent
-      const nodeSdk = await import("@xmtp/node-sdk");
-      const dm = await relay.conversations.createDmWithIdentifier(
-        { identifier: agentAddr.toLowerCase(), identifierKind: nodeSdk.IdentifierKind.Ethereum },
-      );
-      console.log(`[chat] XMTP DM relay→agent created: ${dm.id}`);
+        console.log(`[chat] Command: ${text.slice(0, 50)}`);
 
-      // Sync agent so it discovers this new DM before any messages are sent
-      if (xmtpAgent) {
-        await xmtpAgent.client.conversations.syncAll();
-        console.log(`[chat] Agent conversations synced — ready to receive messages`);
-      }
-
-      // Load recent message history
-      await dm.sync();
-      const history = await dm.messages({ limit: 20 });
-      const historyMsgs = history
-        .filter((m) => typeof m.content === "string" && (m.content as string).trim())
-        .map((m) => ({
-          id: m.id,
-          sender: m.senderInboxId === relay.inboxId ? "user" : "agent",
-          text: m.content as string,
-          time: new Date(Number(m.sentAtNs) / 1_000_000).toISOString(),
-        }));
-      send(ws, { type: "history", messages: historyMsgs });
-
-      // Stream new messages
-      const stream = await dm.stream();
-      const streamReader = (async () => {
-        for await (const msg of stream) {
-          if (typeof msg.content !== "string" || !(msg.content as string).trim()) continue;
-          // Only forward AGENT responses (not relay's own messages)
-          if (msg.senderInboxId === relay.inboxId) continue;
-
-          send(ws, {
-            type: "message",
-            id: msg.id,
-            sender: "agent",
-            text: msg.content as string,
-          });
-        }
-      })();
-
-      ws.on("close", () => {
-        console.log("[chat] Client disconnected, ending XMTP stream");
-        stream.return().catch(() => {});
-      });
-
-      // Handle incoming messages from browser — x402 payment + XMTP relay
-      ws.on("message", async (raw) => {
-        let msg: { type: string; text?: string };
-        try { msg = JSON.parse(raw.toString()); } catch { return; }
-
-        if (msg.type === "message" && msg.text) {
-          const text = msg.text.trim();
-          const cmdMatch = text.match(/^\/(\w+)/);
-          const cmd = cmdMatch?.[1]?.toLowerCase();
-          const price = cmd ? CHAT_PRICE_MAP[cmd as keyof typeof CHAT_PRICE_MAP] : undefined;
-
-          console.log(`[chat] XMTP relay: ${text.slice(0, 50)}`);
-
-          // Paid command → do x402 payment via bridge before forwarding to XMTP
-          if (price) {
-            if (!bridgeSessionId || !getSession(bridgeSessionId)) {
-              send(ws, { type: "message", id: `sys_${Date.now()}`, sender: "agent",
-                text: `❌ OWS wallet not connected. Pair your wallet to make paid requests.` });
-              return;
-            }
-
+        // Paid command → x402 payment via bridge wallet
+        if (price) {
+          if (!bridgeSessionId || !getSession(bridgeSessionId)) {
             send(ws, { type: "message", id: `sys_${Date.now()}`, sender: "agent",
-              text: `💳 /${cmd} · $${price} USDC · Paying...` });
-
-            try {
-              const addresses = text.match(/0x[a-fA-F0-9]{40}/g);
-              const body = cmd === "compare"
-                ? { addressA: addresses?.[0], addressB: addresses?.[1] }
-                : { address: addresses?.[0] };
-
-              await requestSignature(bridgeSessionId, "x402Payment", {
-                description: `x402 payment $${price} USDC for /${cmd}`,
-                command: cmd,
-                price,
-                body,
-                serverUrl: PUBLIC_URL,
-              });
-
-              console.log(`[chat] x402 /${cmd} $${price} — ✅ paid`);
-              send(ws, { type: "message", id: `sys_${Date.now()}`, sender: "agent",
-                text: `✅ Paid $${price} USDC! Processing request...` });
-            } catch (err) {
-              console.log(`[chat] x402 /${cmd} $${price} — ❌ ${(err as Error).message}`);
-              send(ws, { type: "message", id: `sys_${Date.now()}`, sender: "agent",
-                text: `❌ Payment failed: ${(err as Error).message}` });
-              return;
-            }
+              text: `OWS wallet not connected. Pair your wallet to make paid requests.` });
+            return;
           }
 
-          // For /balance without address, inject the bridge wallet address
-          let forwardText = msg.text!;
-          if (cmd === "balance" && !text.match(/0x[a-fA-F0-9]{40}/)) {
-            const session = bridgeSessionId ? getSession(bridgeSessionId) : null;
-            if (session?.address) {
-              forwardText = `/balance ${session.address}`;
-            }
-          }
+          send(ws, { type: "message", id: `sys_${Date.now()}`, sender: "agent",
+            text: `/${cmd} · $${price} USDC · Paying...` });
 
-          // Forward to XMTP agent (free commands go straight, paid commands after payment)
           try {
-            await dm.sync();
-            await dm.sendText(forwardText);
+            const addresses = text.match(/0x[a-fA-F0-9]{40}/g);
+            const body = cmd === "compare"
+              ? { addressA: addresses?.[0], addressB: addresses?.[1] }
+              : { address: addresses?.[0] };
+
+            await requestSignature(bridgeSessionId, "x402Payment", {
+              description: `x402 payment $${price} USDC for /${cmd}`,
+              command: cmd,
+              price,
+              body,
+              serverUrl: PUBLIC_URL,
+            });
+
+            console.log(`[chat] x402 /${cmd} $${price} — paid`);
+            send(ws, { type: "message", id: `sys_${Date.now()}`, sender: "agent",
+              text: `Paid $${price} USDC! Processing...` });
           } catch (err) {
-            send(ws, { type: "error", error: (err as Error).message });
+            console.log(`[chat] x402 /${cmd} $${price} — ${(err as Error).message}`);
+            send(ws, { type: "message", id: `sys_${Date.now()}`, sender: "agent",
+              text: `Payment failed: ${(err as Error).message}` });
+            return;
           }
         }
-      });
 
-      void streamReader;
-
-    } catch (err) {
-      console.error("[chat] XMTP relay setup failed:", (err as Error).message);
-      send(ws, { type: "error", error: `XMTP setup failed: ${(err as Error).message}` });
-      ws.close();
-    }
+        // Execute command directly
+        const cmdName = cmd || "help";
+        const walletAddress = bridgeSessionId ? getSession(bridgeSessionId)?.address : undefined;
+        try {
+          const result = await executeCommand(cmdName, text, walletAddress);
+          send(ws, { type: "message", id: `res_${Date.now()}`, sender: "agent", text: result });
+          console.log(`[chat] /${cmdName} — done`);
+        } catch (err) {
+          console.error(`[chat] /${cmdName} failed:`, err);
+          send(ws, { type: "message", id: `err_${Date.now()}`, sender: "agent",
+            text: `Error: ${err instanceof Error ? err.message : err}` });
+        }
+      }
+    });
   });
 
   server.on("upgrade", (req, socket, head) => {
