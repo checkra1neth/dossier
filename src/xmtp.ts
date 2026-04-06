@@ -14,8 +14,6 @@ import {
   getWallet as owsGetWallet,
   signMessage as owsSignMessage,
   listWallets as owsListWallets,
-  importWalletPrivateKey as owsImportKey,
-  exportWallet as owsExportWallet,
 } from "@open-wallet-standard/core";
 import { research } from "./pipeline.ts";
 import { reportToMarkdown } from "./report.ts";
@@ -100,18 +98,9 @@ function createOwsSigner(walletName: string): Signer {
 export async function startXmtpAgent(): Promise<Agent> {
   const owsWalletName = process.env.OWS_WALLET_NAME || "research-agent";
 
-  // Restore OWS wallet from env key (persistent across deploys) or create new
-  const wallets = owsListWallets();
-  if (!wallets.find((w: { name: string }) => w.name === owsWalletName)) {
-    const privateKey = process.env.OWS_WALLET_PRIVATE_KEY;
-    if (privateKey) {
-      owsImportKey(owsWalletName, privateKey);
-      console.log(`[xmtp] Imported OWS wallet "${owsWalletName}" from env key`);
-    } else {
-      owsCreateWallet(owsWalletName);
-      const exported = owsExportWallet(owsWalletName);
-      console.log(`[xmtp] Created NEW OWS wallet "${owsWalletName}". Set OWS_WALLET_PRIVATE_KEY=${exported} to persist!`);
-    }
+  // Wallet already initialized by index.ts — just verify it exists
+  if (!owsListWallets().find((w: { name: string }) => w.name === owsWalletName)) {
+    owsCreateWallet(owsWalletName);
   }
 
   const signer = createOwsSigner(owsWalletName);

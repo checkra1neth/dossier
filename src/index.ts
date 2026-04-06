@@ -16,6 +16,7 @@ import {
   listWallets as owsListWallets,
   importWalletPrivateKey as owsImportKey,
   exportWallet as owsExportWallet,
+  deleteWallet as owsDeleteWallet,
 } from "@open-wallet-standard/core";
 import { research } from "./pipeline.ts";
 import { handleQuick } from "./commands/quick.ts";
@@ -162,16 +163,21 @@ app.use("/api", apiProxyRouter);
 
 // OWS wallet for receiving payments
 const owsWalletName = process.env.OWS_WALLET_NAME || "research-agent";
-const wallets = owsListWallets();
-if (!wallets.find((w: { name: string }) => w.name === owsWalletName)) {
-  const privateKey = process.env.OWS_WALLET_PRIVATE_KEY;
-  if (privateKey) {
-    owsImportKey(owsWalletName, privateKey);
-  } else {
-    owsCreateWallet(owsWalletName);
-    const exported = owsExportWallet(owsWalletName);
-    console.log(`[ows] Created NEW wallet. Set OWS_WALLET_PRIVATE_KEY=${exported} to persist!`);
+
+// Ensure wallet matches env key — delete stale wallet if key changed
+const privateKey = process.env.OWS_WALLET_PRIVATE_KEY;
+if (privateKey) {
+  const existing = owsListWallets().find((w: { name: string }) => w.name === owsWalletName);
+  if (existing) {
+    // Re-import to ensure address matches the env key
+    try { owsDeleteWallet(owsWalletName); } catch {}
   }
+  owsImportKey(owsWalletName, privateKey);
+  console.log(`[ows] Imported wallet "${owsWalletName}" from OWS_WALLET_PRIVATE_KEY`);
+} else if (!owsListWallets().find((w: { name: string }) => w.name === owsWalletName)) {
+  owsCreateWallet(owsWalletName);
+  const exported = owsExportWallet(owsWalletName);
+  console.log(`[ows] Created NEW wallet. Set OWS_WALLET_PRIVATE_KEY=${exported} to persist!`);
 }
 const owsWallet = owsGetWallet(owsWalletName);
 const evmAccount = owsWallet?.accounts.find((a: { chainId: string }) => a.chainId.startsWith("eip155:"));
