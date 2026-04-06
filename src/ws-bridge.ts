@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "node:http";
 import type { Agent } from "@xmtp/agent-sdk";
 import crypto from "node:crypto";
+import { registerRelayInboxId } from "./xmtp.ts";
 
 // XMTP agent reference — set from index.ts after agent starts
 let xmtpAgent: Agent | null = null;
@@ -65,6 +66,8 @@ async function getRelayClient(): Promise<typeof relayClient> {
 
     relayClient = await Client.create(signer, { env: xmtpEnv, dbEncryptionKey } as Parameters<typeof Client.create>[1]);
     console.log(`[chat-relay] XMTP relay client ready: ${relayAddress}`);
+    // Register relay's inboxId so agent skips payment for relay-forwarded messages
+    registerRelayInboxId(relayClient.inboxId);
     return relayClient;
   } catch (err) {
     console.error("[chat-relay] Failed to create relay client:", (err as Error).message);

@@ -33,10 +33,26 @@ import { handleSubscribe, handleUnsubscribe } from "./commands/subscribe.ts";
 
 const CHAIN = base;
 const USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
-const RESEARCH_PRICE = "0.05"; // USDC
+// Command prices in USDC
+const COMMAND_PRICES: Record<string, string> = {
+  research: "0.05", quick: "0.01", pnl: "0.02", defi: "0.02",
+  history: "0.02", nft: "0.02", compare: "0.05",
+  swap: "0.01", bridge: "0.01", send: "0.01", watch: "0.10",
+};
 
-// Pending research requests: conversationId → target address
-const pendingResearch = new Map<string, string>();
+// Relay inbox IDs that skip payment (already paid via x402 on dashboard)
+const relayInboxIds = new Set<string>();
+
+export function registerRelayInboxId(inboxId: string): void {
+  relayInboxIds.add(inboxId);
+  console.log(`[xmtp] Registered relay inbox: ${inboxId}`);
+}
+
+// Pending payment requests: conversationId → command to execute after payment
+const pendingPayment = new Map<string, {
+  command: string;
+  execute: () => Promise<string>;
+}>();
 
 // Pending wallet action confirmations: conversationId → action
 const pendingAction = new Map<string, {
@@ -115,44 +131,70 @@ export async function startXmtpAgent(): Promise<Agent> {
 
   const router = new CommandRouter({ helpCommand: "/help" });
 
-  router.command("/research", "Research a wallet address ($0.05 USDC)", async (ctx) => {
-    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
-    const text = ctx.message.content as string;
-    console.log(`[xmtp] Received: "${text}"`);
-
-    const addressMatch = text.match(/0x[a-fA-F0-9]{40}/);
-    const address = addressMatch?.[0];
-
-    if (!address) {
-      await ctx.conversation.sendText("Usage: /research 0x<address>\n\nProvide a valid Ethereum address.");
+  // Helper: request XMTP-native payment or execute directly for relay
+  async function paidCommand(
+    ctx: Parameters<Parameters<typeof router.command>[2]>[0],
+    cmd: string,
+    description: string,
+    execute: () => Promise<string>,
+  ): Promise<void> {
+    const isRelay = relayInboxIds.has(ctx.message.senderInboxId);
+    if (isRelay) {
+      // Relay already paid via x402 — execute directly
+      try {
+        const result = await execute();
+        await ctx.conversation.sendText(result);
+      } catch (err) {
+        console.error(`[xmtp] ❌ /${cmd} failed:`, err);
+        await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`);
+      }
       return;
     }
 
-    // Store pending research for this conversation
+    // Direct DM — request XMTP-native payment
+    const price = COMMAND_PRICES[cmd];
+    if (!price) {
+      try {
+        const result = await execute();
+        await ctx.conversation.sendText(result);
+      } catch (err) {
+        console.error(`[xmtp] ❌ /${cmd} failed:`, err);
+        await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`);
+      }
+      return;
+    }
+
     const convId = ctx.conversation.id;
-    pendingResearch.set(convId, address);
+    pendingPayment.set(convId, { command: cmd, execute });
 
-    // Request payment via wallet_sendCalls
     const senderAddress = await ctx.getSenderAddress();
-    const receiverAddress = agent.address;
-
     const walletSendCalls = createERC20TransferCalls({
       chain: CHAIN,
       tokenAddress: USDC_CONTRACT,
       from: validHex(senderAddress),
-      to: validHex(receiverAddress),
-      amount: parseUnits(RESEARCH_PRICE, USDC_DECIMALS),
-      description: `Pay $${RESEARCH_PRICE} USDC for deep wallet research on ${address.slice(0, 10)}...`,
+      to: validHex(agent.address),
+      amount: parseUnits(price, USDC_DECIMALS),
+      description: `Pay $${price} USDC for /${cmd}: ${description}`,
     });
 
     await ctx.conversation.sendText(
-      `💳 Deep research for ${address.slice(0, 6)}...${address.slice(-4)}\n` +
-      `Price: $${RESEARCH_PRICE} USDC on Base\n\n` +
-      `Approve the payment below to start research.`
+      `💳 /${cmd} · $${price} USDC on Base\n${description}\n\nApprove the payment below.`
     );
-
     await ctx.conversation.sendWalletSendCalls(walletSendCalls);
-    console.log(`[xmtp] Payment request sent for ${address} in conversation ${convId}`);
+    console.log(`[xmtp] Payment request for /${cmd} in ${convId}`);
+  }
+
+  router.command("/research", "Research a wallet address ($0.05 USDC)", async (ctx) => {
+    if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
+    const text = ctx.message.content as string;
+    const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
+    if (!address) { await ctx.conversation.sendText("Usage: /research 0x<address>"); return; }
+    console.log(`[xmtp] /research ${address}`);
+    await paidCommand(ctx, "research", address, async () => {
+      await ctx.conversation.sendText(`🔍 Researching ${address.slice(0, 6)}...${address.slice(-4)}... This may take 10-20 seconds.`);
+      const report = await research(address);
+      return reportToMarkdown(report);
+    });
   });
 
   router.command("/quick", "Quick portfolio snapshot ($0.01)", async (ctx) => {
@@ -161,11 +203,11 @@ export async function startXmtpAgent(): Promise<Agent> {
     const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
     if (!address) { await ctx.conversation.sendText("Usage: /quick 0x<address>"); return; }
     console.log(`[xmtp] /quick ${address}`);
-    try {
+    await paidCommand(ctx, "quick", address, async () => {
       const report = await handleQuick(address);
       console.log(`[xmtp] ✅ /quick done — $${report.portfolio.totalValueUsd.toLocaleString()}`);
-      await ctx.conversation.sendText(quickToText(report));
-    } catch (err) { console.error(`[xmtp] ❌ /quick failed:`, err); await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
+      return quickToText(report);
+    });
   });
 
   router.command("/pnl", "Profit & loss report ($0.02)", async (ctx) => {
@@ -174,11 +216,11 @@ export async function startXmtpAgent(): Promise<Agent> {
     const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
     if (!address) { await ctx.conversation.sendText("Usage: /pnl 0x<address>"); return; }
     console.log(`[xmtp] /pnl ${address}`);
-    try {
+    await paidCommand(ctx, "pnl", address, async () => {
       const report = await handlePnl(address);
       console.log(`[xmtp] ✅ /pnl done — ROI ${report.roi.toFixed(1)}%`);
-      await ctx.conversation.sendText(pnlToText(report));
-    } catch (err) { console.error(`[xmtp] ❌ /pnl failed:`, err); await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
+      return pnlToText(report);
+    });
   });
 
   router.command("/defi", "DeFi positions report ($0.02)", async (ctx) => {
@@ -187,11 +229,11 @@ export async function startXmtpAgent(): Promise<Agent> {
     const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
     if (!address) { await ctx.conversation.sendText("Usage: /defi 0x<address>"); return; }
     console.log(`[xmtp] /defi ${address}`);
-    try {
+    await paidCommand(ctx, "defi", address, async () => {
       const report = await handleDefi(address);
       console.log(`[xmtp] ✅ /defi done — ${report.positions.length} positions, $${report.totalDefiUsd.toLocaleString()}`);
-      await ctx.conversation.sendText(defiToText(report));
-    } catch (err) { console.error(`[xmtp] ❌ /defi failed:`, err); await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
+      return defiToText(report);
+    });
   });
 
   router.command("/history", "Transaction history report ($0.02)", async (ctx) => {
@@ -200,11 +242,11 @@ export async function startXmtpAgent(): Promise<Agent> {
     const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
     if (!address) { await ctx.conversation.sendText("Usage: /history 0x<address>"); return; }
     console.log(`[xmtp] /history ${address}`);
-    try {
+    await paidCommand(ctx, "history", address, async () => {
       const report = await handleHistory(address);
       console.log(`[xmtp] ✅ /history done — ${report.transactions.length} txns, ${report.frequency}`);
-      await ctx.conversation.sendText(historyToText(report));
-    } catch (err) { console.error(`[xmtp] ❌ /history failed:`, err); await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
+      return historyToText(report);
+    });
   });
 
   router.command("/nft", "NFT portfolio report ($0.02)", async (ctx) => {
@@ -213,11 +255,11 @@ export async function startXmtpAgent(): Promise<Agent> {
     const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
     if (!address) { await ctx.conversation.sendText("Usage: /nft 0x<address>"); return; }
     console.log(`[xmtp] /nft ${address}`);
-    try {
+    await paidCommand(ctx, "nft", address, async () => {
       const report = await handleNft(address);
       console.log(`[xmtp] ✅ /nft done — ${report.collections.length} collections, $${report.totalEstimatedUsd.toLocaleString()}`);
-      await ctx.conversation.sendText(nftToText(report));
-    } catch (err) { console.error(`[xmtp] ❌ /nft failed:`, err); await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
+      return nftToText(report);
+    });
   });
 
   router.command("/compare", "Compare two wallets ($0.05)", async (ctx) => {
@@ -226,11 +268,11 @@ export async function startXmtpAgent(): Promise<Agent> {
     const addresses = text.match(/0x[a-fA-F0-9]{40}/g);
     if (!addresses || addresses.length < 2) { await ctx.conversation.sendText("Usage: /compare 0x<addressA> 0x<addressB>"); return; }
     console.log(`[xmtp] /compare ${addresses[0]} vs ${addresses[1]}`);
-    try {
+    await paidCommand(ctx, "compare", `${addresses[0]} vs ${addresses[1]}`, async () => {
       const report = await handleCompare(addresses[0], addresses[1]);
       console.log(`[xmtp] ✅ /compare done`);
-      await ctx.conversation.sendText(compareToText(report));
-    } catch (err) { console.error(`[xmtp] ❌ /compare failed:`, err); await ctx.conversation.sendText(`❌ ${err instanceof Error ? err.message : err}`); }
+      return compareToText(report);
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -392,7 +434,7 @@ export async function startXmtpAgent(): Promise<Agent> {
     await ctx.conversation.sendText(result);
   });
 
-  // Handle payment confirmation
+  // Handle payment confirmation — execute any pending paid command
   agent.on("transaction-reference", async (ctx) => {
     if (ctx.message.sentAt && ctx.message.sentAt.getTime() < startedAt) return;
     const { networkId, reference } = ctx.message.content;
@@ -401,27 +443,23 @@ export async function startXmtpAgent(): Promise<Agent> {
 
     console.log(`[xmtp] Transaction confirmed: chain=${chainId} tx=${reference}`);
 
-    const targetAddress = pendingResearch.get(convId);
-    if (!targetAddress) {
-      await ctx.conversation.sendText(`✅ Payment received! (tx: ${reference})\n\nNo pending research request. Send /research 0x<address> first.`);
+    const pending = pendingPayment.get(convId);
+    if (!pending) {
+      await ctx.conversation.sendText(`✅ Payment received! (tx: ${reference})\n\nNo pending command. Send a command first.`);
       return;
     }
 
-    pendingResearch.delete(convId);
+    pendingPayment.delete(convId);
 
-    await ctx.conversation.sendText(
-      `✅ Payment confirmed!\n` +
-      `tx: ${reference}\n\n` +
-      `🔍 Researching ${targetAddress.slice(0, 6)}...${targetAddress.slice(-4)}... This may take 10-20 seconds.`
-    );
+    await ctx.conversation.sendText(`✅ Payment confirmed! (tx: ${reference})\n\nProcessing /${pending.command}...`);
 
     try {
-      const report = await research(targetAddress);
-      const markdown = reportToMarkdown(report);
-      await ctx.conversation.sendText(markdown);
+      const result = await pending.execute();
+      await ctx.conversation.sendText(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      await ctx.conversation.sendText(`❌ Research failed: ${msg}`);
+      console.error(`[xmtp] ❌ /${pending.command} failed after payment:`, msg);
+      await ctx.conversation.sendText(`❌ /${pending.command} failed: ${msg}`);
     }
   });
 
@@ -483,7 +521,7 @@ export async function startXmtpAgent(): Promise<Agent> {
       `  /unwatch 0x<addr> — stop watching (free)\n` +
       `  /subscribe — daily digest (free, coming soon)\n` +
       `  /unsubscribe — stop daily digest (free)\n\n` +
-      `Payments via x402 (USDC on Base, gasless).`
+      `Payments via USDC on Base. DM from any XMTP client!`
     );
   });
 
@@ -491,6 +529,15 @@ export async function startXmtpAgent(): Promise<Agent> {
 
   await agent.start();
   console.log(`[xmtp] Agent online: ${agent.address}`);
+
+  // Periodic sync to discover new conversations (relay DMs from dashboard users)
+  setInterval(async () => {
+    try {
+      await agent.client.conversations.syncAll();
+    } catch (err) {
+      console.error(`[xmtp] Periodic sync failed:`, (err as Error).message);
+    }
+  }, 10_000);
 
   return agent;
 }
