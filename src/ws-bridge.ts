@@ -2,6 +2,8 @@ import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "node:http";
 import type { Agent } from "@xmtp/agent-sdk";
 import crypto from "node:crypto";
+import { createPublicClient, http, parseAbi, formatUnits } from "viem";
+import { base } from "viem/chains";
 import { registerRelayInboxId } from "./xmtp.ts";
 import { handleQuick, quickToText } from "./commands/quick.ts";
 import { handlePnl, pnlToText } from "./commands/pnl.ts";
@@ -12,6 +14,24 @@ import { handleCompare, compareToText } from "./commands/compare.ts";
 import { handleBalance, balanceToText } from "./commands/balance.ts";
 import { research } from "./pipeline.ts";
 import { reportToMarkdown } from "./report.ts";
+
+// USDC balance check on Base
+const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
+const baseClient = createPublicClient({ chain: base, transport: http() });
+
+async function getUsdcBalance(address: string): Promise<number> {
+  try {
+    const bal = await baseClient.readContract({
+      address: USDC_BASE,
+      abi: parseAbi(["function balanceOf(address) view returns (uint256)"]),
+      functionName: "balanceOf",
+      args: [address as `0x${string}`],
+    });
+    return Number(formatUnits(bal, 6));
+  } catch {
+    return -1; // unable to check, let payment proceed
+  }
+}
 
 // XMTP agent reference — set from index.ts after agent starts
 let xmtpAgent: Agent | null = null;
@@ -272,6 +292,17 @@ export function setupBridge(server: Server): void {
             send(ws, { type: "message", id: `sys_${Date.now()}`, sender: "agent",
               text: `OWS wallet not connected. Pair your wallet to make paid requests.` });
             return;
+          }
+
+          // Check USDC balance before attempting payment
+          const session = getSession(bridgeSessionId);
+          if (session?.address) {
+            const usdcBal = await getUsdcBalance(session.address);
+            if (usdcBal >= 0 && usdcBal < Number(price)) {
+              send(ws, { type: "message", id: `sys_${Date.now()}`, sender: "agent",
+                text: `Insufficient USDC balance.\nRequired: $${price} · Available: $${usdcBal.toFixed(2)}\n\nSend USDC to your wallet on Base to use paid commands.` });
+              return;
+            }
           }
 
           send(ws, { type: "message", id: `sys_${Date.now()}`, sender: "agent",
