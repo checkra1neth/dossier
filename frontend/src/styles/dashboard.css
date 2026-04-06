@@ -452,9 +452,10 @@ table td { padding: 11px 0; font-size: 0.84rem; border-bottom: 1px solid oklch(9
   border-bottom-right-radius: 4px;
 }
 .chat-msg.agent .chat-msg-text {
-  background: var(--sand-1); color: var(--ink);
+  background: var(--sand-0); color: var(--ink);
   border-bottom-left-radius: 4px;
   border: 1px solid var(--sand-2);
+  white-space: normal;
 }
 
 /* Copy button */
