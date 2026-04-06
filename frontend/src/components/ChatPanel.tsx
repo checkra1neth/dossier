@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { ReactNode, FormEvent } from "react";
 import type { BridgeState } from "../hooks/useBridge";
+import { formatMessage } from "./formatMessage";
+import type { FormatContext } from "./formatMessage";
 
 interface ChatMessage {
   id: string;
@@ -217,7 +219,11 @@ export function ChatPanel({ bridge, onClose }: ChatPanelProps): ReactNode {
               <span className="chat-msg-time">{msg.time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
             </div>
             <div className="chat-msg-bubble">
-              <div className="chat-msg-text">{msg.text}</div>
+              <div className="chat-msg-text">
+                {msg.sender === "agent"
+                  ? formatMessage(msg.text, { onCommand: doSend } as FormatContext)
+                  : msg.text}
+              </div>
               {msg.sender === "agent" && <CopyBtn text={msg.text} />}
             </div>
           </div>
