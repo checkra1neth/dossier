@@ -13,7 +13,9 @@ export async function handleQuick(address: string): Promise<QuickReport> {
     fetchPositions(address),
   ]);
 
-  return { address, portfolio, topPositions: positions };
+  // Top 10 by value (already sorted desc from Zerion), filter out dust
+  const top = positions.filter(p => p.valueUsd >= 0.01).slice(0, 10);
+  return { address, portfolio, topPositions: top };
 }
 
 export function quickToText(report: QuickReport): string {

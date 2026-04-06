@@ -39,10 +39,16 @@ export function defiToText(report: DefiReport): string {
     "",
   ];
 
-  for (const [protocol, poses] of byProtocol) {
-    const protocolTotal = poses.reduce((s, p) => s + p.valueUsd, 0);
-    lines.push(`▸ ${protocol} (${usd(protocolTotal)})`);
-    for (const p of poses) {
+  // Sort protocols by total value descending
+  const sorted = [...byProtocol.entries()]
+    .map(([protocol, poses]) => ({ protocol, poses, total: poses.reduce((s, p) => s + p.valueUsd, 0) }))
+    .sort((a, b) => b.total - a.total);
+
+  for (const { protocol, poses, total } of sorted) {
+    lines.push(`▸ ${protocol} (${usd(total)})`);
+    // Sort positions within protocol by value descending
+    const sortedPoses = [...poses].sort((a, b) => b.valueUsd - a.valueUsd);
+    for (const p of sortedPoses) {
       lines.push(`  ${p.type}: ${p.asset} — ${usd(p.valueUsd)} [${p.chain}]`);
     }
   }

@@ -17,6 +17,8 @@ export async function handleNft(address: string): Promise<NftReport> {
     0,
   );
 
+  // Sort by floor price descending
+  collections.sort((a, b) => b.floorPrice - a.floorPrice);
   return { address, collections, positions, totalEstimatedUsd };
 }
 
