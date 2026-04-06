@@ -25,11 +25,18 @@ async function getRelayClient(): Promise<typeof relayClient> {
 
     const relayWalletName = "chat-relay";
 
-    // Create relay wallet if it doesn't exist
+    // Restore relay wallet from env key or create new
     const wallets = ows.listWallets();
     if (!wallets.find((w: { name: string }) => w.name === relayWalletName)) {
-      ows.createWallet(relayWalletName);
-      console.log(`[chat-relay] Created OWS wallet "${relayWalletName}"`);
+      const relayKey = process.env.RELAY_WALLET_PRIVATE_KEY;
+      if (relayKey) {
+        ows.importWalletPrivateKey(relayWalletName, relayKey);
+        console.log(`[chat-relay] Imported OWS wallet "${relayWalletName}" from env key`);
+      } else {
+        ows.createWallet(relayWalletName);
+        const exported = ows.exportWallet(relayWalletName);
+        console.log(`[chat-relay] Created NEW OWS wallet "${relayWalletName}". Set RELAY_WALLET_PRIVATE_KEY=${exported} to persist!`);
+      }
     }
 
     const wallet = ows.getWallet(relayWalletName);

@@ -14,6 +14,8 @@ import {
   getWallet as owsGetWallet,
   createWallet as owsCreateWallet,
   listWallets as owsListWallets,
+  importWalletPrivateKey as owsImportKey,
+  exportWallet as owsExportWallet,
 } from "@open-wallet-standard/core";
 import { research } from "./pipeline.ts";
 import { handleQuick } from "./commands/quick.ts";
@@ -162,7 +164,14 @@ app.use("/api", apiProxyRouter);
 const owsWalletName = process.env.OWS_WALLET_NAME || "research-agent";
 const wallets = owsListWallets();
 if (!wallets.find((w: { name: string }) => w.name === owsWalletName)) {
-  owsCreateWallet(owsWalletName);
+  const privateKey = process.env.OWS_WALLET_PRIVATE_KEY;
+  if (privateKey) {
+    owsImportKey(owsWalletName, privateKey);
+  } else {
+    owsCreateWallet(owsWalletName);
+    const exported = owsExportWallet(owsWalletName);
+    console.log(`[ows] Created NEW wallet. Set OWS_WALLET_PRIVATE_KEY=${exported} to persist!`);
+  }
 }
 const owsWallet = owsGetWallet(owsWalletName);
 const evmAccount = owsWallet?.accounts.find((a: { chainId: string }) => a.chainId.startsWith("eip155:"));
