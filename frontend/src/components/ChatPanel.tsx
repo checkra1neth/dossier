@@ -212,7 +212,18 @@ export function ChatPanel({ bridge, onClose }: ChatPanelProps): ReactNode {
           </div>
         )}
 
-        {messages.map((msg) => (
+        {messages.map((msg, idx) => {
+          // Find full address from preceding user message for action buttons
+          let lastAddr: string | undefined;
+          if (msg.sender === "agent") {
+            for (let j = idx - 1; j >= 0; j--) {
+              if (messages[j].sender === "user") {
+                lastAddr = messages[j].text.match(/0x[a-fA-F0-9]{40}/)?.[0];
+                break;
+              }
+            }
+          }
+          return (
           <div key={msg.id} className={`chat-msg ${msg.sender}`}>
             <div className="chat-msg-meta">
               <span className="chat-msg-sender">{msg.sender === "user" ? "You" : "Dossier"}</span>
@@ -221,13 +232,14 @@ export function ChatPanel({ bridge, onClose }: ChatPanelProps): ReactNode {
             <div className="chat-msg-bubble">
               <div className="chat-msg-text">
                 {msg.sender === "agent"
-                  ? formatMessage(msg.text, { onCommand: doSend } as FormatContext)
+                  ? formatMessage(msg.text, { onCommand: doSend, lastAddress: lastAddr })
                   : msg.text}
               </div>
               {msg.sender === "agent" && <CopyBtn text={msg.text} />}
             </div>
           </div>
-        ))}
+          );
+        })}
 
         {loading && (
           <div className="chat-loading">

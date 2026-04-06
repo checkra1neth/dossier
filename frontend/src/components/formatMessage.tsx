@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 
 export interface FormatContext {
   onCommand?: (cmd: string) => void;
+  /** Full address from the user's original command (for action buttons) */
+  lastAddress?: string;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -223,7 +225,8 @@ function ActionBar({ text, ctx }: { text: string; ctx: FormatContext }): ReactNo
   const em = first.match(/^([\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}]+)/u);
   const acts = em?.[1] ? ACTIONS[em[1]] : undefined;
   if (!acts?.length) return null;
-  const addr = text.match(/0x[a-fA-F0-9]{4,6}\.{2,3}[a-fA-F0-9]{3,4}/)?.[0];
+  // Use full address from context (extracted from user's original command)
+  const addr = ctx.lastAddress || text.match(/0x[a-fA-F0-9]{40}/)?.[0];
 
   return (
     <div className="f-actions">
