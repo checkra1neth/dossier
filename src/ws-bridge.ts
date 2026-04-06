@@ -163,7 +163,17 @@ const PUBLIC_URL = process.env.PUBLIC_URL
 
 // Execute a chat command directly (bypass XMTP relay)
 async function executeCommand(cmd: string, text: string, walletAddress?: string): Promise<string> {
-  const address = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
+  // Match full 40-hex address
+  const fullAddr = text.match(/0x[a-fA-F0-9]{40}/)?.[0];
+  // Detect shortened address (0x1234...5678) — user pasted from UI
+  const shortAddr = text.match(/0x[a-fA-F0-9]{4,6}\.{2,3}[a-fA-F0-9]{3,4}/)?.[0];
+  const address = fullAddr;
+
+  // If user provided a shortened address, tell them to use full one
+  const needsAddr = ["quick", "research", "pnl", "defi", "history", "nft"];
+  if (needsAddr.includes(cmd) && !address && shortAddr) {
+    return `Please provide the full address (42 characters).\nShortened addresses like ${shortAddr} can't be used for lookups.`;
+  }
 
   switch (cmd) {
     case "help":
@@ -182,19 +192,19 @@ async function executeCommand(cmd: string, text: string, walletAddress?: string)
         `Payments via USDC on Base.`
       );
     case "quick":
-      if (!address) return "Usage: /quick 0x<address>";
+      if (!address) return "Usage: /quick 0x<address> (full 42-char address)";
       return quickToText(await handleQuick(address));
     case "pnl":
-      if (!address) return "Usage: /pnl 0x<address>";
+      if (!address) return "Usage: /pnl 0x<address> (full 42-char address)";
       return pnlToText(await handlePnl(address));
     case "defi":
-      if (!address) return "Usage: /defi 0x<address>";
+      if (!address) return "Usage: /defi 0x<address> (full 42-char address)";
       return defiToText(await handleDefi(address));
     case "history":
-      if (!address) return "Usage: /history 0x<address>";
+      if (!address) return "Usage: /history 0x<address> (full 42-char address)";
       return historyToText(await handleHistory(address));
     case "nft":
-      if (!address) return "Usage: /nft 0x<address>";
+      if (!address) return "Usage: /nft 0x<address> (full 42-char address)";
       return nftToText(await handleNft(address));
     case "compare": {
       const addresses = text.match(/0x[a-fA-F0-9]{40}/g);
@@ -207,7 +217,7 @@ async function executeCommand(cmd: string, text: string, walletAddress?: string)
       return balanceToText(await handleBalance(target));
     }
     case "research":
-      if (!address) return "Usage: /research 0x<address>";
+      if (!address) return "Usage: /research 0x<address> (full 42-char address)";
       return reportToMarkdown(await research(address));
     default:
       return `Unknown command: /${cmd}. Send /help for available commands.`;
@@ -242,8 +252,22 @@ export function setupBridge(server: Server): void {
 
         console.log(`[chat] Command: ${text.slice(0, 50)}`);
 
-        // Paid command → x402 payment via bridge wallet
+        // Paid command → validate inputs, then x402 payment via bridge wallet
         if (price) {
+          // Validate address before paying — don't charge for bad input
+          const needsAddr = ["quick", "research", "pnl", "defi", "history", "nft", "compare"];
+          if (needsAddr.includes(cmd!)) {
+            const hasFullAddr = /0x[a-fA-F0-9]{40}/.test(text);
+            const hasShortAddr = /0x[a-fA-F0-9]{4,6}\.{2,3}[a-fA-F0-9]{3,4}/.test(text);
+            if (!hasFullAddr) {
+              const hint = hasShortAddr
+                ? "Please provide the full 42-character address, not the shortened version."
+                : `Usage: /${cmd} 0x<full address>`;
+              send(ws, { type: "message", id: `sys_${Date.now()}`, sender: "agent", text: hint });
+              return;
+            }
+          }
+
           if (!bridgeSessionId || !getSession(bridgeSessionId)) {
             send(ws, { type: "message", id: `sys_${Date.now()}`, sender: "agent",
               text: `OWS wallet not connected. Pair your wallet to make paid requests.` });
